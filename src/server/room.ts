@@ -126,6 +126,19 @@ export class Room extends DurableObject<Env> {
     const playerId = this.sockets.get(ws);
     if (!playerId) return;
 
+    // If disconnecting player was carrying a flag, return it to base
+    const player = this.players.get(playerId);
+    if (player && player.carryingFlag) {
+      const flag = this.flags.find((f) => f.team === player.carryingFlag);
+      if (flag && flag.carriedBy === playerId) {
+        flag.carriedBy = undefined;
+        flag.atBase = true;
+        flag.dropped = false;
+        flag.x = flag.team === "red" ? 80 : this.worldWidth - 80;
+        flag.y = this.worldHeight / 2;
+      }
+    }
+
     this.sockets.delete(ws);
     this.players.delete(playerId);
 

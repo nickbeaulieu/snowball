@@ -1,5 +1,6 @@
 import { WALLS } from "../walls";
 import { useEffect, useRef } from "react";
+
 import {
   ACCELERATION,
   FRICTION,
@@ -13,28 +14,7 @@ import {
   PLAYER_RADIUS,
 } from "../constants";
 
-type Player = {
-  id: string;
-  x: number;
-  y: number;
-  hit?: boolean;
-};
-
-type ServerSnapshot = {
-  type: string;
-  players: Player[];
-  snowballs: Snowball[];
-  timestamp: number;
-};
-
-type Snowball = {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  ownerId: string;
-  createdAt: number;
-};
+import type { Player, ServerSnapshot, Snowball, FlagState } from "../types";
 
 function getClientId(): string {
   let id = localStorage.getItem("clientId");
@@ -65,9 +45,7 @@ export function GameCanvas() {
   // Buffer of recent server snapshots for interpolation
   const snapshotBufferRef = useRef<ServerSnapshot[]>([]);
 
-  const predictedPlayerRef = useRef<
-    (Player & { vx?: number; vy?: number }) | null
-  >(null);
+  const predictedPlayerRef = useRef<Player | null>(null);
   // For robust smoothing corrections (blend both position and velocity)
   const correctionStartRef = useRef<{
     x: number;
@@ -137,7 +115,7 @@ export function GameCanvas() {
       window.removeEventListener("keydown", handleKey);
       if (canvas) canvas.removeEventListener("mousedown", handleMouse);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // (removed unused eslint-disable)
   }, []);
 
   // Helper to throw a snowball in a given direction (or current movement if not specified)
@@ -190,7 +168,7 @@ export function GameCanvas() {
 
       // Use new state structure
       const me = msg.state.players.find(
-        (p: any) => p.id === playerIdRef.current,
+        (p: Player) => p.id === playerIdRef.current,
       );
       if (!me) return;
 
@@ -386,27 +364,38 @@ export function GameCanvas() {
           flags: [],
           scores: { red: 0, blue: 0 },
         };
-      let older = null,
-        newer = null;
+      let older: ServerSnapshot | null = null,
+        newer: ServerSnapshot | null = null;
       for (let i = buffer.length - 2; i >= 0; --i) {
+        const curr = buffer[i];
+        const next = buffer[i + 1];
         if (
-          buffer[i].timestamp <= renderTime &&
-          buffer[i + 1].timestamp >= renderTime
+          curr &&
+          next &&
+          curr.timestamp !== undefined &&
+          next.timestamp !== undefined &&
+          curr.timestamp <= renderTime &&
+          next.timestamp >= renderTime
         ) {
-          older = buffer[i];
-          newer = buffer[i + 1];
+          older = curr;
+          newer = next;
           break;
         }
       }
-      if (!older || !newer) {
+      if (
+        !older ||
+        !newer ||
+        older.timestamp === undefined ||
+        newer.timestamp === undefined
+      ) {
         const last = buffer[buffer.length - 1];
         return last.state;
       }
       const t =
         (renderTime - older.timestamp) / (newer.timestamp - older.timestamp);
       // Interpolate players (position only)
-      const players = older.state.players.map((op: any) => {
-        const np = newer.state.players.find((p: any) => p.id === op.id);
+      const players = older.state.players.map((op: Player) => {
+        const np = newer!.state.players.find((p: Player) => p.id === op.id);
         if (!np) return { ...op };
         return {
           ...op,
@@ -435,7 +424,9 @@ export function GameCanvas() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Camera follow logic
-      const localPlayer = players.find((p) => p.id === playerIdRef.current);
+      const localPlayer = players.find(
+        (p: Player) => p.id === playerIdRef.current,
+      );
       let camX = 0,
         camY = 0;
       if (localPlayer) {
@@ -515,7 +506,7 @@ export function GameCanvas() {
       }
 
       // Draw flags (base, dropped, or carried)
-      for (const flag of flags) {
+      for (const flag of flags as FlagState[]) {
         ctx.save();
         // If carried, draw on carrier (skip here)
         if (flag.carriedBy) {
@@ -546,11 +537,11 @@ export function GameCanvas() {
       }
 
       // Draw all players (including local) as top-down people with snow hats
-      for (const p of players) {
+      for (const p of players as Player[]) {
         ctx.save();
         // Draw carried flag if any
         if (p.carryingFlag) {
-          const flag = flags.find((f) => f.team === p.carryingFlag);
+          const flag = flags.find((f: FlagState) => f.team === p.carryingFlag);
           if (flag) {
             ctx.beginPath();
             ctx.moveTo(p.x, p.y - PLAYER_RADIUS * 1.3);
@@ -693,10 +684,10 @@ export function GameCanvas() {
         // No need to draw local player separately; all players are drawn above
       }
 
-      for (const s of snowballs) {
+      for (const s of snowballs as Snowball[]) {
         ctx.beginPath();
         ctx.arc(s.x, s.y, SNOWBALL_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = s.ownerId === playerIdRef.current ? "#ff9800" : "#aaa"; // orange for your snowballs
+        ctx.fillStyle = s.owner === playerIdRef.current ? "#ff9800" : "#aaa"; // orange for your snowballs
         ctx.fill();
         ctx.fillStyle = "#000";
       }
