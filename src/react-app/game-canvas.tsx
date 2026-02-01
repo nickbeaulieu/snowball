@@ -1,4 +1,12 @@
 import { useEffect, useRef } from "react";
+import {
+  ACCELERATION,
+  FRICTION,
+  MAX_SPEED,
+  DT,
+  CORRECTION_DURATION,
+  CORRECTION_THRESHOLD,
+} from "../constants";
 
 type Player = {
   id: string;
@@ -16,11 +24,6 @@ type ServerSnapshot = {
 type Snowball = {
   x: number;
   y: number;
-};
-
-type GameState = {
-  players: Player[];
-  snowballs: Snowball[];
 };
 
 function getClientId(): string {
@@ -41,8 +44,7 @@ type InputMsg = {
   right: boolean;
 };
 
-const SPEED = 220;
-const DT = 1 / 30;
+// ...constants imported from ../constants
 
 export function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -53,13 +55,23 @@ export function GameCanvas() {
   // Buffer of recent server snapshots for interpolation
   const snapshotBufferRef = useRef<ServerSnapshot[]>([]);
 
-  const predictedPlayerRef = useRef<Player | null>(null);
-  // For robust smoothing corrections
-  const correctionStartRef = useRef<Player | null>(null);
-  const correctionTargetRef = useRef<Player | null>(null);
+  const predictedPlayerRef = useRef<
+    (Player & { vx?: number; vy?: number }) | null
+  >(null);
+  // For robust smoothing corrections (blend both position and velocity)
+  const correctionStartRef = useRef<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+  } | null>(null);
+  const correctionTargetRef = useRef<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+  } | null>(null);
   const correctionStartTimeRef = useRef<number>(0);
-  const CORRECTION_DURATION = 0.08; // seconds (80ms)
-  const CORRECTION_THRESHOLD = 2; // pixels
 
   const keysRef = useRef<Record<string, boolean>>({});
 
@@ -91,30 +103,59 @@ export function GameCanvas() {
       const me = msg.players.find((p) => p.id === playerIdRef.current);
       if (!me) return;
 
-      // Robust correction: only start a new correction if error is significant
-      if (predictedPlayerRef.current) {
-        const dx = me.x - predictedPlayerRef.current.x;
-        const dy = me.y - predictedPlayerRef.current.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist > CORRECTION_THRESHOLD) {
-          correctionStartRef.current = { ...predictedPlayerRef.current };
-          correctionTargetRef.current = { ...me };
-          correctionStartTimeRef.current = performance.now() / 1000;
-        }
-        // If already correcting, let the blend finish
-      } else {
-        predictedPlayerRef.current = { ...me };
+      // Always use interpolation for corrections, even for small errors
+      if (!predictedPlayerRef.current) {
+        predictedPlayerRef.current = { ...me, vx: me.vx ?? 0, vy: me.vy ?? 0 };
         correctionStartRef.current = null;
         correctionTargetRef.current = null;
+      } else {
+        const dx = me.x - predictedPlayerRef.current.x;
+        const dy = me.y - predictedPlayerRef.current.y;
+        const dvx = (me.vx ?? 0) - (predictedPlayerRef.current.vx ?? 0);
+        const dvy = (me.vy ?? 0) - (predictedPlayerRef.current.vy ?? 0);
+        const dist = Math.hypot(dx, dy);
+        const vdist = Math.hypot(dvx, dvy);
+        if (dist > CORRECTION_THRESHOLD || vdist > CORRECTION_THRESHOLD) {
+          // Large error: trigger interpolation
+          correctionStartRef.current = {
+            x: predictedPlayerRef.current.x,
+            y: predictedPlayerRef.current.y,
+            vx: predictedPlayerRef.current.vx ?? 0,
+            vy: predictedPlayerRef.current.vy ?? 0,
+          };
+          correctionTargetRef.current = {
+            x: me.x,
+            y: me.y,
+            vx: me.vx ?? 0,
+            vy: me.vy ?? 0,
+          };
+          correctionStartTimeRef.current = performance.now() / 1000;
+        } else if (dist > 0.01 || vdist > 0.01) {
+          // Small error: still interpolate, but with a shorter duration
+          correctionStartRef.current = {
+            x: predictedPlayerRef.current.x,
+            y: predictedPlayerRef.current.y,
+            vx: predictedPlayerRef.current.vx ?? 0,
+            vy: predictedPlayerRef.current.vy ?? 0,
+          };
+          correctionTargetRef.current = {
+            x: me.x,
+            y: me.y,
+            vx: me.vx ?? 0,
+            vy: me.vy ?? 0,
+          };
+          correctionStartTimeRef.current = performance.now() / 1000;
+        }
+        // If error is truly negligible, do nothing
       }
 
       // Reapply only the last unacknowledged input (to match server logic)
+      // Reapply all unacknowledged inputs in order (to match server simulation)
       const unacked = pendingInputsRef.current.filter(
         (i) => i.seq > me.lastProcessedInput,
       );
-      if (unacked.length > 0) {
-        // Only apply the last one
-        applyInputPrediction(unacked[unacked.length - 1]);
+      for (const input of unacked) {
+        applyInputPrediction(input);
       }
 
       // Drop acknowledged inputs
@@ -154,6 +195,12 @@ export function GameCanvas() {
   function applyInputPrediction(input: InputMsg) {
     if (!predictedPlayerRef.current) return;
 
+    // Initialize velocity if missing
+    if (predictedPlayerRef.current.vx === undefined)
+      predictedPlayerRef.current.vx = 0;
+    if (predictedPlayerRef.current.vy === undefined)
+      predictedPlayerRef.current.vy = 0;
+
     let ax = 0;
     let ay = 0;
 
@@ -168,8 +215,28 @@ export function GameCanvas() {
       ay /= len;
     }
 
-    predictedPlayerRef.current.x += ax * SPEED * DT;
-    predictedPlayerRef.current.y += ay * SPEED * DT;
+    // Apply acceleration
+    predictedPlayerRef.current.vx += ax * ACCELERATION * DT;
+    predictedPlayerRef.current.vy += ay * ACCELERATION * DT;
+
+    // Apply friction (exponential decay)
+    predictedPlayerRef.current.vx *= Math.pow(FRICTION, DT);
+    predictedPlayerRef.current.vy *= Math.pow(FRICTION, DT);
+
+    // Clamp speed
+    const speed = Math.hypot(
+      predictedPlayerRef.current.vx,
+      predictedPlayerRef.current.vy,
+    );
+    if (speed > MAX_SPEED) {
+      predictedPlayerRef.current.vx =
+        (predictedPlayerRef.current.vx / speed) * MAX_SPEED;
+      predictedPlayerRef.current.vy =
+        (predictedPlayerRef.current.vy / speed) * MAX_SPEED;
+    }
+
+    predictedPlayerRef.current.x += predictedPlayerRef.current.vx * DT;
+    predictedPlayerRef.current.y += predictedPlayerRef.current.vy * DT;
   }
 
   useEffect(() => {
@@ -231,8 +298,8 @@ export function GameCanvas() {
       const t =
         (renderTime - older.timestamp) / (newer.timestamp - older.timestamp);
       // Interpolate all players
-      const players: Player[] = older.players.map((op) => {
-        const np = newer.players.find((p) => p.id === op.id);
+      const players: Player[] = older.players.map((op: Player) => {
+        const np = newer.players.find((p: Player) => p.id === op.id);
         if (!np) return op;
         return {
           id: op.id,
@@ -265,21 +332,37 @@ export function GameCanvas() {
         ctx.fill();
       }
 
-      // Robustly blend predicted position toward correction target if needed
+      // Blend both position and velocity for smooth correction
       if (predictedPlayerRef.current) {
         if (correctionTargetRef.current && correctionStartRef.current) {
           const nowSec = performance.now() / 1000;
-          const t = Math.min(
-            (nowSec - correctionStartTimeRef.current) / CORRECTION_DURATION,
-            1,
-          );
+          let t =
+            (nowSec - correctionStartTimeRef.current) / CORRECTION_DURATION;
+          t = Math.min(Math.max(t, 0), 1);
+          // Optionally use ease-in-out for smoother feel
+          const easeT = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
           predictedPlayerRef.current.x =
             correctionStartRef.current.x +
-            (correctionTargetRef.current.x - correctionStartRef.current.x) * t;
+            (correctionTargetRef.current.x - correctionStartRef.current.x) *
+              easeT;
           predictedPlayerRef.current.y =
             correctionStartRef.current.y +
-            (correctionTargetRef.current.y - correctionStartRef.current.y) * t;
+            (correctionTargetRef.current.y - correctionStartRef.current.y) *
+              easeT;
+          predictedPlayerRef.current.vx =
+            correctionStartRef.current.vx +
+            (correctionTargetRef.current.vx - correctionStartRef.current.vx) *
+              easeT;
+          predictedPlayerRef.current.vy =
+            correctionStartRef.current.vy +
+            (correctionTargetRef.current.vy - correctionStartRef.current.vy) *
+              easeT;
           if (t >= 1) {
+            // Snap to target and clear interpolation
+            predictedPlayerRef.current.x = correctionTargetRef.current.x;
+            predictedPlayerRef.current.y = correctionTargetRef.current.y;
+            predictedPlayerRef.current.vx = correctionTargetRef.current.vx;
+            predictedPlayerRef.current.vy = correctionTargetRef.current.vy;
             correctionStartRef.current = null;
             correctionTargetRef.current = null;
           }

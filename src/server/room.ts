@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { type ServerSnapshot, type Player } from "../types";
+import { ACCELERATION, FRICTION, MAX_SPEED, DT } from "../constants";
 
 export class Room extends DurableObject<Env> {
   players: Map<string, Player> = new Map();
@@ -102,8 +103,8 @@ export class Room extends DurableObject<Env> {
   }
 
   startGameLoop() {
-    const TICK = 1000 / 30;
-    const SPEED = 220;
+    const TICK = 1000 * DT;
+    // Momentum movement constants now imported from ../constants
     this.tickInterval = setInterval(() => {
       const dt = 1 / 30;
       const now = Date.now();
@@ -126,7 +127,7 @@ export class Room extends DurableObject<Env> {
         }
       }
 
-      // Apply movement
+      // Apply momentum-based movement
       for (const player of this.players.values()) {
         let ax = 0;
         let ay = 0;
@@ -136,14 +137,27 @@ export class Room extends DurableObject<Env> {
         if (input.left) ax -= 1;
         if (input.right) ax += 1;
 
+        // Normalize acceleration
         if (ax !== 0 || ay !== 0) {
           const len = Math.hypot(ax, ay);
           ax /= len;
           ay /= len;
         }
 
-        player.vx = ax * SPEED;
-        player.vy = ay * SPEED;
+        // Apply acceleration
+        player.vx += ax * ACCELERATION * dt;
+        player.vy += ay * ACCELERATION * dt;
+
+        // Apply friction (exponential decay)
+        player.vx *= Math.pow(FRICTION, dt);
+        player.vy *= Math.pow(FRICTION, dt);
+
+        // Clamp speed
+        const speed = Math.hypot(player.vx, player.vy);
+        if (speed > MAX_SPEED) {
+          player.vx = (player.vx / speed) * MAX_SPEED;
+          player.vy = (player.vy / speed) * MAX_SPEED;
+        }
 
         player.x += player.vx * dt;
         player.y += player.vy * dt;
