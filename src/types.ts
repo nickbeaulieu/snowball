@@ -1,3 +1,5 @@
+export type Team = "red" | "blue";
+
 export type Player = {
   id: string;
   x: number;
@@ -10,12 +12,30 @@ export type Player = {
   lastSeen: number;
   hit: boolean;
   hitTime: number;
+  team: Team;
+  carryingFlag?: Team; // which team's flag is being carried, if any
+};
+
+export type FlagState = {
+  team: Team; // which team this flag belongs to
+  x: number;
+  y: number;
+  atBase: boolean;
+  carriedBy?: string; // player id if being carried
+  dropped?: boolean; // true if dropped on the ground
+};
+
+export type GameState = {
+  players: Player[];
+  snowballs: Snowball[];
+  flags: FlagState[];
+  scores: Record<Team, number>;
 };
 
 export type ServerSnapshot = {
   type: "state";
-  players: Player[];
-  snowballs: { x: number; y: number }[];
+  state: GameState;
+  timestamp?: number;
 };
 export type Snowball = {
   x: number;

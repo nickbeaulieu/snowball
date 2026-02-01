@@ -1,6 +1,12 @@
 import { WALLS } from "../walls";
 import { DurableObject } from "cloudflare:workers";
-import { type ServerSnapshot, type Player } from "../types";
+import {
+  type ServerSnapshot,
+  type Player,
+  type Team,
+  type FlagState,
+  type GameState,
+} from "../types";
 import {
   ACCELERATION,
   FRICTION,
@@ -28,6 +34,22 @@ export class Room extends DurableObject<Env> {
   worldHeight = 1000;
 
   snowballs: Snowball[] = [];
+
+  flags: FlagState[] = [
+    {
+      team: "red",
+      x: 80,
+      y: this.worldHeight / 2,
+      atBase: true,
+    },
+    {
+      team: "blue",
+      x: this.worldWidth - 80,
+      y: this.worldHeight / 2,
+      atBase: true,
+    },
+  ];
+  scores: Record<Team, number> = { red: 0, blue: 0 };
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -69,10 +91,18 @@ export class Room extends DurableObject<Env> {
     this.sockets.set(ws, playerId);
 
     if (!this.players.has(playerId)) {
+      // Assign team: balance by count
+      const redCount = Array.from(this.players.values()).filter(
+        (p) => p.team === "red",
+      ).length;
+      const blueCount = Array.from(this.players.values()).filter(
+        (p) => p.team === "blue",
+      ).length;
+      const team: Team = redCount <= blueCount ? "red" : "blue";
       this.players.set(playerId, {
         id: playerId,
-        x: Math.random() * 1800 + 100,
-        y: Math.random() * 800 + 100,
+        x: team === "red" ? 120 : this.worldWidth - 120,
+        y: this.worldHeight / 2 + (Math.random() - 0.5) * 200,
         vx: 0,
         vy: 0,
         input: { up: false, down: false, left: false, right: false },
@@ -81,6 +111,7 @@ export class Room extends DurableObject<Env> {
         lastThrowTime: 0,
         hit: false,
         hitTime: 0,
+        team,
       });
     }
 
@@ -147,8 +178,29 @@ export class Room extends DurableObject<Env> {
           createdAt: Date.now(),
         });
       }
+    } else if (msg.type === "drop_flag") {
+      // Drop carried flag at current position
+      if (player.carryingFlag) {
+        const flag = this.flags.find((f) => f.team === player.carryingFlag);
+        if (flag && flag.carriedBy === player.id) {
+          flag.carriedBy = undefined;
+          flag.atBase = false;
+          flag.dropped = true;
+          flag.x = player.x;
+          flag.y = player.y;
+        }
+        player.carryingFlag = undefined;
+      }
     }
   }
+
+  // ...existing code...
+
+  // TODO: Implement flag pickup, drop, carry, and scoring logic here
+  // - Detect player/flag collision
+  // - Handle flag pickup, drop (space), and scoring
+  // - Allow any player to pick up dropped flag
+  // - If carrier is hit and opponent collides, allow steal
 
   startGameLoop() {
     const TICK = 1000 * DT;
@@ -242,6 +294,84 @@ export class Room extends DurableObject<Env> {
         if (!collidesWall(player.x, nextY)) {
           player.y = nextY;
         }
+
+        // --- FLAG LOGIC ---
+        // 1. Pickup flag if colliding with a flag (not own, not already carrying)
+        for (const flag of this.flags) {
+          const dx = player.x - flag.x;
+          const dy = player.y - flag.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (
+            dist < PLAYER_RADIUS + 18 &&
+            !player.carryingFlag &&
+            !flag.carriedBy &&
+            (flag.atBase === false || flag.atBase === true) &&
+            flag.team !== player.team
+          ) {
+            // Pickup opponent flag
+            flag.carriedBy = player.id;
+            flag.atBase = false;
+            flag.dropped = false;
+            player.carryingFlag = flag.team;
+          }
+        }
+        // 2. Pickup dropped flag (anyone)
+        for (const flag of this.flags) {
+          if (flag.dropped && !flag.carriedBy) {
+            const dx = player.x - flag.x;
+            const dy = player.y - flag.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < PLAYER_RADIUS + 18 && !player.carryingFlag) {
+              flag.carriedBy = player.id;
+              flag.dropped = false;
+              player.carryingFlag = flag.team;
+            }
+          }
+        }
+        // 3. If carrying opponent flag and at own base (and own flag at base), score
+        if (player.carryingFlag) {
+          const myFlag = this.flags.find((f) => f.team === player.team);
+          const oppFlag = this.flags.find(
+            (f) => f.team === player.carryingFlag,
+          );
+          if (
+            myFlag &&
+            oppFlag &&
+            myFlag.atBase &&
+            Math.abs(player.x - myFlag.x) < PLAYER_RADIUS + 18 &&
+            Math.abs(player.y - myFlag.y) < PLAYER_RADIUS + 18
+          ) {
+            // Score!
+            this.scores[player.team]++;
+            oppFlag.atBase = true;
+            oppFlag.carriedBy = undefined;
+            oppFlag.dropped = false;
+            oppFlag.x = oppFlag.team === "red" ? 80 : this.worldWidth - 80;
+            oppFlag.y = this.worldHeight / 2;
+            player.carryingFlag = undefined;
+          }
+        }
+        // 4. If carrying flag and get hit, allow steal if opponent collides while hit
+        if (player.carryingFlag && player.hit) {
+          const flag = this.flags.find((f) => f.team === player.carryingFlag);
+          if (flag && flag.carriedBy === player.id) {
+            // Check for opponent collision
+            for (const other of this.players.values()) {
+              if (other.team !== player.team && !other.carryingFlag) {
+                const dx = other.x - player.x;
+                const dy = other.y - player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < PLAYER_RADIUS * 2) {
+                  // Steal!
+                  flag.carriedBy = other.id;
+                  player.carryingFlag = undefined;
+                  other.carryingFlag = flag.team;
+                  break;
+                }
+              }
+            }
+          }
+        }
       }
 
       // Update snowballs
@@ -291,17 +421,20 @@ export class Room extends DurableObject<Env> {
       }
 
       // Broadcast state with server timestamp (ms since epoch)
-      const snapshot: ServerSnapshot & { timestamp: number } = {
+      const snapshot: ServerSnapshot = {
         type: "state",
-        players: Array.from(this.players.values()).map((p) => ({
-          ...p,
-          hit: p.hit,
-        })),
-        snowballs: this.snowballs.map((s) => ({
-          x: s.x,
-          y: s.y,
-          ownerId: s.ownerId,
-        })),
+        state: {
+          players: Array.from(this.players.values()),
+          snowballs: this.snowballs.map((s) => ({
+            x: s.x,
+            y: s.y,
+            vx: s.vx,
+            vy: s.vy,
+            owner: s.ownerId,
+          })),
+          flags: this.flags.map((f) => ({ ...f })),
+          scores: { ...this.scores },
+        },
         timestamp: Date.now(),
       };
 

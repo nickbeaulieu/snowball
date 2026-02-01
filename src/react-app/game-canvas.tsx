@@ -92,11 +92,18 @@ export function GameCanvas() {
   const lastThrowTimeRef = useRef<number>(0);
   // Handle snowball throw input (spacebar or mouse click)
   useEffect(() => {
-    const handleThrowKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space") return;
-      throwSnowball();
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        // Try to drop flag if carrying, else throw snowball
+        const player = predictedPlayerRef.current;
+        if (player && player.carryingFlag) {
+          wsRef.current?.send(JSON.stringify({ type: "drop_flag" }));
+        } else {
+          throwSnowball();
+        }
+      }
     };
-    window.addEventListener("keydown", handleThrowKey);
+    window.addEventListener("keydown", handleKey);
 
     const handleMouse = (e: MouseEvent) => {
       const canvas = canvasRef.current;
@@ -127,7 +134,7 @@ export function GameCanvas() {
     if (canvas) canvas.addEventListener("mousedown", handleMouse);
 
     return () => {
-      window.removeEventListener("keydown", handleThrowKey);
+      window.removeEventListener("keydown", handleKey);
       if (canvas) canvas.removeEventListener("mousedown", handleMouse);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,16 +184,16 @@ export function GameCanvas() {
 
       // Buffer the snapshot for interpolation
       snapshotBufferRef.current.push(msg);
-      // Keep only the last 20 snapshots (tune as needed)
       if (snapshotBufferRef.current.length > 20) {
         snapshotBufferRef.current.shift();
       }
 
-      // Find local player for prediction/reconciliation
-      const me = msg.players.find((p) => p.id === playerIdRef.current);
+      // Use new state structure
+      const me = msg.state.players.find(
+        (p: any) => p.id === playerIdRef.current,
+      );
       if (!me) return;
 
-      // Always use interpolation for corrections, even for small errors
       if (!predictedPlayerRef.current) {
         predictedPlayerRef.current = { ...me, vx: me.vx ?? 0, vy: me.vy ?? 0 };
         correctionStartRef.current = null;
@@ -199,7 +206,6 @@ export function GameCanvas() {
         const dist = Math.hypot(dx, dy);
         const vdist = Math.hypot(dvx, dvy);
         if (dist > CORRECTION_THRESHOLD || vdist > CORRECTION_THRESHOLD) {
-          // Large error: trigger interpolation
           correctionStartRef.current = {
             x: predictedPlayerRef.current.x,
             y: predictedPlayerRef.current.y,
@@ -214,7 +220,6 @@ export function GameCanvas() {
           };
           correctionStartTimeRef.current = performance.now() / 1000;
         } else if (dist > 0.01 || vdist > 0.01) {
-          // Small error: still interpolate, but with a shorter duration
           correctionStartRef.current = {
             x: predictedPlayerRef.current.x,
             y: predictedPlayerRef.current.y,
@@ -229,7 +234,6 @@ export function GameCanvas() {
           };
           correctionStartTimeRef.current = performance.now() / 1000;
         }
-        // If error is truly negligible, do nothing
       }
 
       // Reapply only the last unacknowledged input (to match server logic)
@@ -371,9 +375,17 @@ export function GameCanvas() {
     // Interpolation settings
     const INTERP_DELAY = 100; // ms
 
-    function interpolatePlayers(buffer: ServerSnapshot[], renderTime: number) {
-      // Find two snapshots to interpolate between
-      if (buffer.length < 2) return { players: [], snowballs: [] };
+    function interpolateGameState(
+      buffer: ServerSnapshot[],
+      renderTime: number,
+    ) {
+      if (buffer.length < 2)
+        return {
+          players: [],
+          snowballs: [],
+          flags: [],
+          scores: { red: 0, blue: 0 },
+        };
       let older = null,
         newer = null;
       for (let i = buffer.length - 2; i >= 0; --i) {
@@ -387,32 +399,35 @@ export function GameCanvas() {
         }
       }
       if (!older || !newer) {
-        // Not enough data, use latest
         const last = buffer[buffer.length - 1];
-        return { players: last.players, snowballs: last.snowballs };
+        return last.state;
       }
       const t =
         (renderTime - older.timestamp) / (newer.timestamp - older.timestamp);
-      // Interpolate all players
-      const players: Player[] = older.players.map((op: Player) => {
-        const np = newer.players.find((p: Player) => p.id === op.id);
-        if (!np) return { ...op, hit: !!op.hit };
+      // Interpolate players (position only)
+      const players = older.state.players.map((op: any) => {
+        const np = newer.state.players.find((p: any) => p.id === op.id);
+        if (!np) return { ...op };
         return {
-          id: op.id,
+          ...op,
           x: op.x + (np.x - op.x) * t,
           y: op.y + (np.y - op.y) * t,
-          hit: !!(op.hit || np.hit),
         };
       });
-      // Interpolate snowballs if needed (simple copy for now)
-      return { players, snowballs: newer.snowballs };
+      // No interpolation for flags/scores
+      return {
+        players,
+        snowballs: newer.state.snowballs,
+        flags: newer.state.flags,
+        scores: newer.state.scores,
+      };
     }
 
     const draw = () => {
       // Interpolate remote players
       const now = Date.now();
       const renderTime = now - INTERP_DELAY;
-      const { players, snowballs } = interpolatePlayers(
+      const { players, snowballs, flags, scores } = interpolateGameState(
         snapshotBufferRef.current,
         renderTime,
       );
@@ -499,9 +514,67 @@ export function GameCanvas() {
         ctx.restore();
       }
 
+      // Draw flags (base, dropped, or carried)
+      for (const flag of flags) {
+        ctx.save();
+        // If carried, draw on carrier (skip here)
+        if (flag.carriedBy) {
+          ctx.restore();
+          continue;
+        }
+        // Draw flag pole
+        ctx.beginPath();
+        ctx.moveTo(flag.x, flag.y);
+        ctx.lineTo(flag.x, flag.y - 32);
+        ctx.strokeStyle = "#888";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        // Draw flag
+        ctx.beginPath();
+        ctx.moveTo(flag.x, flag.y - 32);
+        ctx.lineTo(flag.x + (flag.team === "red" ? 22 : -22), flag.y - 24);
+        ctx.lineTo(flag.x, flag.y - 16);
+        ctx.closePath();
+        ctx.fillStyle = flag.team === "red" ? "#e53935" : "#1976d2";
+        ctx.globalAlpha = flag.dropped ? 0.7 : 1;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
       // Draw all players (including local) as top-down people with snow hats
       for (const p of players) {
         ctx.save();
+        // Draw carried flag if any
+        if (p.carryingFlag) {
+          const flag = flags.find((f) => f.team === p.carryingFlag);
+          if (flag) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y - PLAYER_RADIUS * 1.3);
+            ctx.lineTo(p.x, p.y - PLAYER_RADIUS * 1.7);
+            ctx.strokeStyle = "#888";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y - PLAYER_RADIUS * 1.7);
+            ctx.lineTo(
+              p.x + (flag.team === "red" ? 18 : -18),
+              p.y - PLAYER_RADIUS * 1.55,
+            );
+            ctx.lineTo(p.x, p.y - PLAYER_RADIUS * 1.4);
+            ctx.closePath();
+            ctx.fillStyle = flag.team === "red" ? "#e53935" : "#1976d2";
+            ctx.globalAlpha = 1;
+            ctx.fill();
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+        }
+        // ...existing player rendering code...
         // Shadow
         ctx.beginPath();
         ctx.ellipse(
@@ -521,7 +594,7 @@ export function GameCanvas() {
         // Body (jacket)
         ctx.beginPath();
         ctx.arc(p.x, p.y, PLAYER_RADIUS * 0.95, 0, Math.PI * 2);
-        ctx.fillStyle = p.hit ? "#f88" : "#1976d2"; // red if hit, blue otherwise
+        ctx.fillStyle = p.hit ? "#f88" : "#1976d2";
         ctx.fill();
         ctx.lineWidth = 2;
         ctx.strokeStyle = "#0d47a1";
@@ -536,7 +609,7 @@ export function GameCanvas() {
           0,
           Math.PI * 2,
         );
-        ctx.fillStyle = "#fffde7"; // pale face
+        ctx.fillStyle = "#fffde7";
         ctx.fill();
         ctx.strokeStyle = "#bdbdbd";
         ctx.stroke();
@@ -550,7 +623,7 @@ export function GameCanvas() {
           0,
           Math.PI * 2,
         );
-        ctx.fillStyle = "#e3f2fd"; // light blue snow hat
+        ctx.fillStyle = "#e3f2fd";
         ctx.fill();
         ctx.strokeStyle = "#90caf9";
         ctx.stroke();
@@ -618,6 +691,20 @@ export function GameCanvas() {
         ctx.fillStyle = "#000";
       }
 
+      // Draw menu bar with scores
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "#f5f5f5";
+      ctx.fillRect(0, 0, canvas.width, 48);
+      ctx.globalAlpha = 1;
+      ctx.font = "bold 24px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#e53935";
+      ctx.fillText(`Red: ${scores?.red ?? 0}`, canvas.width / 2 - 80, 24);
+      ctx.fillStyle = "#1976d2";
+      ctx.fillText(`Blue: ${scores?.blue ?? 0}`, canvas.width / 2 + 80, 24);
       ctx.restore();
 
       rafId = requestAnimationFrame(draw);
