@@ -430,8 +430,28 @@ export function GameCanvas() {
         camX = Math.max(0, Math.min(WORLD_WIDTH - canvas.width, camX));
         camY = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, camY));
       }
+
       ctx.save();
       ctx.translate(-camX, -camY);
+
+      // Draw off-white grid background
+      ctx.fillStyle = "#f9f9f6"; // off-white
+      ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+      const gridSize = 40;
+      ctx.beginPath();
+      for (let x = 0; x <= WORLD_WIDTH; x += gridSize) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, WORLD_HEIGHT);
+      }
+      for (let y = 0; y <= WORLD_HEIGHT; y += gridSize) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(WORLD_WIDTH, y);
+      }
+      ctx.strokeStyle = "#ececec"; // subtle grid lines
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.7;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
 
       // Draw world bounds (border)
       ctx.strokeStyle = "#bbb";
@@ -593,7 +613,7 @@ export function GameCanvas() {
       for (const s of snowballs) {
         ctx.beginPath();
         ctx.arc(s.x, s.y, SNOWBALL_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = s.ownerId === playerIdRef.current ? "#00f" : "#aaa";
+        ctx.fillStyle = s.ownerId === playerIdRef.current ? "#ff9800" : "#aaa"; // orange for your snowballs
         ctx.fill();
         ctx.fillStyle = "#000";
       }
