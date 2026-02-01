@@ -35,20 +35,13 @@ export class Room extends DurableObject<Env> {
 
   snowballs: Snowball[] = [];
 
-  flags: FlagState[] = [
-    {
-      team: "red",
-      x: 80,
-      y: this.worldHeight / 2,
-      atBase: true,
-    },
-    {
-      team: "blue",
-      x: this.worldWidth - 80,
-      y: this.worldHeight / 2,
-      atBase: true,
-    },
-  ];
+  flag: FlagState = {
+    x: this.worldWidth / 2,
+    y: this.worldHeight / 2,
+    atBase: true,
+    carriedBy: undefined,
+    dropped: false,
+  };
   scores: Record<Team, number> = { red: 0, blue: 0 };
 
   constructor(state: DurableObjectState, env: Env) {
@@ -126,17 +119,14 @@ export class Room extends DurableObject<Env> {
     const playerId = this.sockets.get(ws);
     if (!playerId) return;
 
-    // If disconnecting player was carrying a flag, return it to base
+    // If disconnecting player was carrying the flag, return it to center
     const player = this.players.get(playerId);
-    if (player && player.carryingFlag) {
-      const flag = this.flags.find((f) => f.team === player.carryingFlag);
-      if (flag && flag.carriedBy === playerId) {
-        flag.carriedBy = undefined;
-        flag.atBase = true;
-        flag.dropped = false;
-        flag.x = flag.team === "red" ? 80 : this.worldWidth - 80;
-        flag.y = this.worldHeight / 2;
-      }
+    if (player && player.carryingFlag && this.flag.carriedBy === playerId) {
+      this.flag.carriedBy = undefined;
+      this.flag.atBase = true;
+      this.flag.dropped = false;
+      this.flag.x = this.worldWidth / 2;
+      this.flag.y = this.worldHeight / 2;
     }
 
     this.sockets.delete(ws);
@@ -193,15 +183,12 @@ export class Room extends DurableObject<Env> {
       }
     } else if (msg.type === "drop_flag") {
       // Drop carried flag at current position
-      if (player.carryingFlag) {
-        const flag = this.flags.find((f) => f.team === player.carryingFlag);
-        if (flag && flag.carriedBy === player.id) {
-          flag.carriedBy = undefined;
-          flag.atBase = false;
-          flag.dropped = true;
-          flag.x = player.x;
-          flag.y = player.y;
-        }
+      if (player.carryingFlag && this.flag.carriedBy === player.id) {
+        this.flag.carriedBy = undefined;
+        this.flag.atBase = false;
+        this.flag.dropped = true;
+        this.flag.x = player.x;
+        this.flag.y = player.y;
         player.carryingFlag = undefined;
       }
     }
@@ -309,78 +296,106 @@ export class Room extends DurableObject<Env> {
         }
 
         // --- FLAG LOGIC ---
-        // 1. Pickup flag if colliding with a flag (not own, not already carrying)
-        for (const flag of this.flags) {
-          const dx = player.x - flag.x;
-          const dy = player.y - flag.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (
-            dist < PLAYER_RADIUS + 18 &&
-            !player.carryingFlag &&
-            !flag.carriedBy &&
-            (flag.atBase === false || flag.atBase === true) &&
-            flag.team !== player.team
-          ) {
-            // Pickup opponent flag
-            flag.carriedBy = player.id;
-            flag.atBase = false;
-            flag.dropped = false;
-            player.carryingFlag = flag.team;
-          }
+        // 1. Pickup flag if colliding with it (not already carrying)
+        const dx = player.x - this.flag.x;
+        const dy = player.y - this.flag.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (
+          dist < PLAYER_RADIUS + 18 &&
+          !player.carryingFlag &&
+          !this.flag.carriedBy
+        ) {
+          // Pickup neutral flag
+          this.flag.carriedBy = player.id;
+          this.flag.atBase = false;
+          this.flag.dropped = false;
+          player.carryingFlag = true;
         }
         // 2. Pickup dropped flag (anyone)
-        for (const flag of this.flags) {
-          if (flag.dropped && !flag.carriedBy) {
-            const dx = player.x - flag.x;
-            const dy = player.y - flag.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < PLAYER_RADIUS + 18 && !player.carryingFlag) {
-              flag.carriedBy = player.id;
-              flag.dropped = false;
-              player.carryingFlag = flag.team;
-            }
-          }
+        if (
+          this.flag.dropped &&
+          !this.flag.carriedBy &&
+          dist < PLAYER_RADIUS + 18 &&
+          !player.carryingFlag
+        ) {
+          this.flag.carriedBy = player.id;
+          this.flag.dropped = false;
+          player.carryingFlag = true;
         }
-        // 3. If carrying opponent flag and at own base (and own flag at base), score
-        if (player.carryingFlag) {
-          const myFlag = this.flags.find((f) => f.team === player.team);
-          const oppFlag = this.flags.find(
-            (f) => f.team === player.carryingFlag,
-          );
-          if (
-            myFlag &&
-            oppFlag &&
-            myFlag.atBase &&
-            Math.abs(player.x - myFlag.x) < PLAYER_RADIUS + 18 &&
-            Math.abs(player.y - myFlag.y) < PLAYER_RADIUS + 18
-          ) {
-            // Score!
+        // 3. If carrying flag and at own goal, score
+        if (player.carryingFlag && this.flag.carriedBy === player.id) {
+          // Define goal zones (2x8 grid squares) for each team
+          const gridSize = 40;
+          const goalWidth = gridSize * 2;
+          const goalHeight = gridSize * 8;
+          const redGoal = {
+            x: 0,
+            y: (this.worldHeight - goalHeight) / 2,
+            w: goalWidth,
+            h: goalHeight,
+          };
+          const blueGoal = {
+            x: this.worldWidth - goalWidth,
+            y: (this.worldHeight - goalHeight) / 2,
+            w: goalWidth,
+            h: goalHeight,
+          };
+          const inRedGoal =
+            player.team === "red" &&
+            player.x >= redGoal.x &&
+            player.x <= redGoal.x + redGoal.w &&
+            player.y >= redGoal.y &&
+            player.y <= redGoal.y + redGoal.h;
+          const inBlueGoal =
+            player.team === "blue" &&
+            player.x >= blueGoal.x &&
+            player.x <= blueGoal.x + blueGoal.w &&
+            player.y >= blueGoal.y &&
+            player.y <= blueGoal.y + blueGoal.h;
+          if (inRedGoal || inBlueGoal) {
             this.scores[player.team]++;
-            oppFlag.atBase = true;
-            oppFlag.carriedBy = undefined;
-            oppFlag.dropped = false;
-            oppFlag.x = oppFlag.team === "red" ? 80 : this.worldWidth - 80;
-            oppFlag.y = this.worldHeight / 2;
+            this.flag.atBase = true;
+            this.flag.carriedBy = undefined;
+            this.flag.dropped = false;
+            this.flag.x = this.worldWidth / 2;
+            this.flag.y = this.worldHeight / 2;
             player.carryingFlag = undefined;
           }
         }
-        // 4. If carrying flag and get hit, allow steal if opponent collides while hit
-        if (player.carryingFlag && player.hit) {
-          const flag = this.flags.find((f) => f.team === player.carryingFlag);
-          if (flag && flag.carriedBy === player.id) {
-            // Check for opponent collision
-            for (const other of this.players.values()) {
-              if (other.team !== player.team && !other.carryingFlag) {
-                const dx = other.x - player.x;
-                const dy = other.y - player.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < PLAYER_RADIUS * 2) {
-                  // Steal!
-                  flag.carriedBy = other.id;
-                  player.carryingFlag = undefined;
-                  other.carryingFlag = flag.team;
-                  break;
-                }
+        // 4. Tag-to-kill and flag steal: if players collide, respawn tagged, and if carrier is tagged, transfer flag
+        for (const other of this.players.values()) {
+          if (other.id !== player.id && other.team !== player.team) {
+            const pdx = player.x - other.x;
+            const pdy = player.y - other.y;
+            const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pdist < PLAYER_RADIUS * 2) {
+              // Tag! Respawn the tagged player
+              // If tagged player is carrying flag, transfer to tagger if not already carrying
+              if (
+                player.carryingFlag &&
+                this.flag.carriedBy === player.id &&
+                !other.carryingFlag
+              ) {
+                this.flag.carriedBy = other.id;
+                player.carryingFlag = undefined;
+                other.carryingFlag = true;
+              }
+              // Respawn tagged player
+              if (player.team === "red") {
+                player.x = 120;
+                player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+              } else {
+                player.x = this.worldWidth - 120;
+                player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+              }
+              player.vx = 0;
+              player.vy = 0;
+              player.carryingFlag = undefined;
+              if (this.flag.carriedBy === player.id) {
+                this.flag.carriedBy = undefined;
+                this.flag.dropped = true;
+                this.flag.x = player.x;
+                this.flag.y = player.y;
               }
             }
           }
@@ -445,7 +460,7 @@ export class Room extends DurableObject<Env> {
             vy: s.vy,
             owner: s.ownerId,
           })),
-          flags: this.flags.map((f) => ({ ...f })),
+          flag: { ...this.flag },
           scores: { ...this.scores },
         },
         timestamp: Date.now(),
