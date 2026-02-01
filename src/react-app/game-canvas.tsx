@@ -591,13 +591,23 @@ export function GameCanvas() {
         ctx.fill();
         ctx.globalAlpha = 1;
 
-        // Body (jacket)
+        // Body (jacket) - team color
         ctx.beginPath();
         ctx.arc(p.x, p.y, PLAYER_RADIUS * 0.95, 0, Math.PI * 2);
-        ctx.fillStyle = p.hit ? "#f88" : "#1976d2";
+        let bodyColor = "#1976d2";
+        let bodyStroke = "#0d47a1";
+        if (p.team === "red") {
+          bodyColor = "#e53935";
+          bodyStroke = "#b71c1c";
+        }
+        ctx.fillStyle = p.hit
+          ? p.team === "red"
+            ? "#ffb3b3"
+            : "#90caf9"
+          : bodyColor;
         ctx.fill();
         ctx.lineWidth = 2;
-        ctx.strokeStyle = "#0d47a1";
+        ctx.strokeStyle = bodyStroke;
         ctx.stroke();
 
         // Head (face)
