@@ -1,3 +1,4 @@
+import { WALLS } from "../walls";
 import { useEffect, useRef } from "react";
 import {
   ACCELERATION,
@@ -6,9 +7,10 @@ import {
   DT,
   CORRECTION_DURATION,
   CORRECTION_THRESHOLD,
-  SNOWBALL_SPEED,
   SNOWBALL_RADIUS,
-  SNOWBALL_LIFETIME,
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  PLAYER_RADIUS,
 } from "../constants";
 
 type Player = {
@@ -100,11 +102,21 @@ export function GameCanvas() {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+      // Camera follow: get camera offset
+      let camX = 0,
+        camY = 0;
+      if (predictedPlayerRef.current && canvas) {
+        camX = predictedPlayerRef.current.x - canvas.width / 2;
+        camY = predictedPlayerRef.current.y - canvas.height / 2;
+        camX = Math.max(0, Math.min(WORLD_WIDTH - canvas.width, camX));
+        camY = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, camY));
+      }
+      // Mouse position in world coordinates
+      const mouseX = e.clientX - rect.left + camX;
+      const mouseY = e.clientY - rect.top + camY;
       const player = predictedPlayerRef.current;
       if (!player) return;
-      // Player is drawn at (player.x, player.y) in canvas coordinates
+      // Player is at (player.x, player.y) in world coordinates
       const dx = mouseX - player.x;
       const dy = mouseY - player.y;
       const len = Math.hypot(dx, dy);
@@ -336,6 +348,19 @@ export function GameCanvas() {
 
   /* ---------------- Render loop ---------------- */
 
+  // Resize canvas to fit window
+  useEffect(() => {
+    function resize() {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -394,13 +419,137 @@ export function GameCanvas() {
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw all players (including local)
-      for (const p of players) {
+      // Camera follow logic
+      const localPlayer = players.find((p) => p.id === playerIdRef.current);
+      let camX = 0,
+        camY = 0;
+      if (localPlayer) {
+        camX = localPlayer.x - canvas.width / 2;
+        camY = localPlayer.y - canvas.height / 2;
+        // Clamp camera to world bounds
+        camX = Math.max(0, Math.min(WORLD_WIDTH - canvas.width, camX));
+        camY = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, camY));
+      }
+      ctx.save();
+      ctx.translate(-camX, -camY);
+
+      // Draw world bounds (border)
+      ctx.strokeStyle = "#bbb";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+      // Draw walls as snow mounds (rounded rectangles)
+      for (const wall of WALLS) {
+        ctx.save();
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
-        ctx.fillStyle = p.hit ? "#f00" : "#000";
+        const r = 16; // corner radius for snow mounds
+        ctx.moveTo(wall.x + r, wall.y);
+        ctx.lineTo(wall.x + wall.width - r, wall.y);
+        ctx.quadraticCurveTo(
+          wall.x + wall.width,
+          wall.y,
+          wall.x + wall.width,
+          wall.y + r,
+        );
+        ctx.lineTo(wall.x + wall.width, wall.y + wall.height - r);
+        ctx.quadraticCurveTo(
+          wall.x + wall.width,
+          wall.y + wall.height,
+          wall.x + wall.width - r,
+          wall.y + wall.height,
+        );
+        ctx.lineTo(wall.x + r, wall.y + wall.height);
+        ctx.quadraticCurveTo(
+          wall.x,
+          wall.y + wall.height,
+          wall.x,
+          wall.y + wall.height - r,
+        );
+        ctx.lineTo(wall.x, wall.y + r);
+        ctx.quadraticCurveTo(wall.x, wall.y, wall.x + r, wall.y);
+        ctx.closePath();
+        ctx.fillStyle = "#e0f7fa";
+        ctx.shadowColor = "#b3e5fc";
+        ctx.shadowBlur = 12;
         ctx.fill();
-        ctx.fillStyle = "#000";
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "#90caf9";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Draw all players (including local) as top-down people with snow hats
+      for (const p of players) {
+        ctx.save();
+        // Shadow
+        ctx.beginPath();
+        ctx.ellipse(
+          p.x,
+          p.y + PLAYER_RADIUS * 0.5,
+          PLAYER_RADIUS * 0.9,
+          PLAYER_RADIUS * 0.4,
+          0,
+          0,
+          Math.PI * 2,
+        );
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = "#222";
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Body (jacket)
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, PLAYER_RADIUS * 0.95, 0, Math.PI * 2);
+        ctx.fillStyle = p.hit ? "#f88" : "#1976d2"; // red if hit, blue otherwise
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#0d47a1";
+        ctx.stroke();
+
+        // Head (face)
+        ctx.beginPath();
+        ctx.arc(
+          p.x,
+          p.y - PLAYER_RADIUS * 0.55,
+          PLAYER_RADIUS * 0.45,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fillStyle = "#fffde7"; // pale face
+        ctx.fill();
+        ctx.strokeStyle = "#bdbdbd";
+        ctx.stroke();
+
+        // Snow hat (main part)
+        ctx.beginPath();
+        ctx.arc(
+          p.x,
+          p.y - PLAYER_RADIUS * 0.85,
+          PLAYER_RADIUS * 0.32,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fillStyle = "#e3f2fd"; // light blue snow hat
+        ctx.fill();
+        ctx.strokeStyle = "#90caf9";
+        ctx.stroke();
+
+        // Snow hat pom-pom
+        ctx.beginPath();
+        ctx.arc(
+          p.x,
+          p.y - PLAYER_RADIUS * 1.13,
+          PLAYER_RADIUS * 0.13,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fillStyle = "#fff";
+        ctx.fill();
+        ctx.strokeStyle = "#b3e5fc";
+        ctx.stroke();
+
+        ctx.restore();
       }
 
       // Blend both position and velocity for smooth correction (local prediction)
@@ -449,6 +598,8 @@ export function GameCanvas() {
         ctx.fillStyle = "#000";
       }
 
+      ctx.restore();
+
       rafId = requestAnimationFrame(draw);
     };
 
@@ -457,5 +608,19 @@ export function GameCanvas() {
     return () => cancelAnimationFrame(rafId);
   }, []);
 
-  return <canvas ref={canvasRef} width={400} height={400} />;
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        zIndex: 0,
+        display: "block",
+      }}
+      tabIndex={0}
+    />
+  );
 }

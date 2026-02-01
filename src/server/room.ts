@@ -1,3 +1,4 @@
+import { WALLS } from "../walls";
 import { DurableObject } from "cloudflare:workers";
 import { type ServerSnapshot, type Player } from "../types";
 import {
@@ -23,7 +24,8 @@ export class Room extends DurableObject<Env> {
   players: Map<string, Player> = new Map();
   sockets: Map<WebSocket, string> = new Map();
   tickInterval?: number;
-  worldSize = 400;
+  worldWidth = 2000;
+  worldHeight = 1000;
 
   snowballs: Snowball[] = [];
 
@@ -69,7 +71,7 @@ export class Room extends DurableObject<Env> {
     if (!this.players.has(playerId)) {
       this.players.set(playerId, {
         id: playerId,
-        x: Math.random() * 800 + 100,
+        x: Math.random() * 1800 + 100,
         y: Math.random() * 800 + 100,
         vx: 0,
         vy: 0,
@@ -211,12 +213,35 @@ export class Room extends DurableObject<Env> {
           player.vy = (player.vy / speed) * MAX_SPEED;
         }
 
-        player.x += player.vx * dt;
-        player.y += player.vy * dt;
-
+        // Attempt move
+        let nextX = player.x + player.vx * dt;
+        let nextY = player.y + player.vy * dt;
         // Clamp to world bounds
-        player.x = Math.max(0, Math.min(this.worldSize, player.x));
-        player.y = Math.max(0, Math.min(this.worldSize, player.y));
+        nextX = Math.max(0, Math.min(this.worldWidth, nextX));
+        nextY = Math.max(0, Math.min(this.worldHeight, nextY));
+        // Simple AABB collision with walls
+        const radius = PLAYER_RADIUS; // player radius
+        function collidesWall(x: number, y: number) {
+          for (const wall of WALLS) {
+            if (
+              x + radius > wall.x &&
+              x - radius < wall.x + wall.width &&
+              y + radius > wall.y &&
+              y - radius < wall.y + wall.height
+            ) {
+              return true;
+            }
+          }
+          return false;
+        }
+        // Try X move
+        if (!collidesWall(nextX, player.y)) {
+          player.x = nextX;
+        }
+        // Try Y move
+        if (!collidesWall(player.x, nextY)) {
+          player.y = nextY;
+        }
       }
 
       // Update snowballs
@@ -231,9 +256,9 @@ export class Room extends DurableObject<Env> {
       this.snowballs = this.snowballs.filter(
         (s) =>
           s.x >= 0 &&
-          s.x <= this.worldSize &&
+          s.x <= this.worldWidth &&
           s.y >= 0 &&
-          s.y <= this.worldSize,
+          s.y <= this.worldHeight,
       );
       // Collision detection (simple): snowball hits any player except owner
       for (const snowball of this.snowballs) {
