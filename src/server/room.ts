@@ -362,40 +362,45 @@ export class Room extends DurableObject<Env> {
             player.carryingFlag = undefined;
           }
         }
-        // 4. Tag-to-kill and flag steal: if players collide, respawn tagged, and if carrier is tagged, transfer flag
+        // 4. Tag-to-kill and flag steal: if players collide, if opponent has the flag, they die and you steal the flag
         for (const other of this.players.values()) {
           if (other.id !== player.id && other.team !== player.team) {
             const pdx = player.x - other.x;
             const pdy = player.y - other.y;
             const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
             if (pdist < PLAYER_RADIUS * 2) {
-              // Tag! Respawn the tagged player
-              // If tagged player is carrying flag, transfer to tagger if not already carrying
+              // If opponent has the flag, they die and you steal the flag
               if (
-                player.carryingFlag &&
-                this.flag.carriedBy === player.id &&
-                !other.carryingFlag
+                other.carryingFlag &&
+                this.flag.carriedBy === other.id &&
+                !player.carryingFlag
               ) {
-                this.flag.carriedBy = other.id;
+                this.flag.carriedBy = player.id;
+                other.carryingFlag = undefined;
+                player.carryingFlag = true;
+                // Respawn the opponent
+                if (other.team === "red") {
+                  other.x = 120;
+                  other.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                } else {
+                  other.x = this.worldWidth - 120;
+                  other.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                }
+                other.vx = 0;
+                other.vy = 0;
+                other.carryingFlag = undefined;
+              } else if (!other.carryingFlag && !player.carryingFlag) {
+                // If neither has the flag, default: tagged player dies (optional, can be removed if only want flag logic)
+                if (player.team === "red") {
+                  player.x = 120;
+                  player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                } else {
+                  player.x = this.worldWidth - 120;
+                  player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                }
+                player.vx = 0;
+                player.vy = 0;
                 player.carryingFlag = undefined;
-                other.carryingFlag = true;
-              }
-              // Respawn tagged player
-              if (player.team === "red") {
-                player.x = 120;
-                player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
-              } else {
-                player.x = this.worldWidth - 120;
-                player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
-              }
-              player.vx = 0;
-              player.vy = 0;
-              player.carryingFlag = undefined;
-              if (this.flag.carriedBy === player.id) {
-                this.flag.carriedBy = undefined;
-                this.flag.dropped = true;
-                this.flag.x = player.x;
-                this.flag.y = player.y;
               }
             }
           }
