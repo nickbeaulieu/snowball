@@ -6,7 +6,10 @@ export type Player = {
   vy: number;
   input: { up: boolean; down: boolean; left: boolean; right: boolean };
   lastProcessedInput: number;
+  lastThrowTime: number;
   lastSeen: number;
+  hit: boolean;
+  hitTime: number;
 };
 
 export type ServerSnapshot = {

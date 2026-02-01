@@ -6,12 +6,16 @@ import {
   DT,
   CORRECTION_DURATION,
   CORRECTION_THRESHOLD,
+  SNOWBALL_SPEED,
+  SNOWBALL_RADIUS,
+  SNOWBALL_LIFETIME,
 } from "../constants";
 
 type Player = {
   id: string;
   x: number;
   y: number;
+  hit?: boolean;
 };
 
 type ServerSnapshot = {
@@ -24,6 +28,10 @@ type ServerSnapshot = {
 type Snowball = {
   x: number;
   y: number;
+  vx: number;
+  vy: number;
+  ownerId: string;
+  createdAt: number;
 };
 
 function getClientId(): string {
@@ -77,6 +85,69 @@ export function GameCanvas() {
 
   // Store pending input messages for client-side prediction
   const pendingInputsRef = useRef<InputMsg[]>([]);
+
+  // Track when the player last threw a snowball (for cooldown)
+  const lastThrowTimeRef = useRef<number>(0);
+  // Handle snowball throw input (spacebar or mouse click)
+  useEffect(() => {
+    const handleThrowKey = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      throwSnowball();
+    };
+    window.addEventListener("keydown", handleThrowKey);
+
+    const handleMouse = (e: MouseEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const player = predictedPlayerRef.current;
+      if (!player) return;
+      // Player is drawn at (player.x, player.y) in canvas coordinates
+      const dx = mouseX - player.x;
+      const dy = mouseY - player.y;
+      const len = Math.hypot(dx, dy);
+      if (len === 0) return;
+      throwSnowball(dx / len, dy / len);
+    };
+    const canvas = canvasRef.current;
+    if (canvas) canvas.addEventListener("mousedown", handleMouse);
+
+    return () => {
+      window.removeEventListener("keydown", handleThrowKey);
+      if (canvas) canvas.removeEventListener("mousedown", handleMouse);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Helper to throw a snowball in a given direction (or current movement if not specified)
+  function throwSnowball(dirX?: number, dirY?: number) {
+    const now = performance.now() / 1000;
+    if (now - lastThrowTimeRef.current < 0.2) return; // 200ms cooldown
+    lastThrowTimeRef.current = now;
+    const player = predictedPlayerRef.current;
+    if (!player) return;
+    let dx = dirX;
+    let dy = dirY;
+    if (dx === undefined || dy === undefined) {
+      dx = player.vx ?? 0;
+      dy = player.vy ?? 0;
+      if (dx === 0 && dy === 0) {
+        dy = -1; // default up
+      }
+      const len = Math.hypot(dx, dy);
+      if (len === 0) return;
+      dx /= len;
+      dy /= len;
+    }
+    wsRef.current?.send(
+      JSON.stringify({
+        type: "throw",
+        dir: { x: dx, y: dy },
+      }),
+    );
+  }
 
   /* ---------------- WebSocket ---------------- */
 
@@ -300,11 +371,12 @@ export function GameCanvas() {
       // Interpolate all players
       const players: Player[] = older.players.map((op: Player) => {
         const np = newer.players.find((p: Player) => p.id === op.id);
-        if (!np) return op;
+        if (!np) return { ...op, hit: !!op.hit };
         return {
           id: op.id,
           x: op.x + (np.x - op.x) * t,
           y: op.y + (np.y - op.y) * t,
+          hit: !!(op.hit || np.hit),
         };
       });
       // Interpolate snowballs if needed (simple copy for now)
@@ -312,27 +384,26 @@ export function GameCanvas() {
     }
 
     const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Calculate render time for interpolation
+      // Interpolate remote players
       const now = Date.now();
       const renderTime = now - INTERP_DELAY;
-
-      // Interpolate remote players
       const { players, snowballs } = interpolatePlayers(
         snapshotBufferRef.current,
         renderTime,
       );
 
-      // Draw remote players (excluding local)
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw all players (including local)
       for (const p of players) {
-        if (p.id === playerIdRef.current) continue;
         ctx.beginPath();
         ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.fillStyle = p.hit ? "#f00" : "#000";
         ctx.fill();
+        ctx.fillStyle = "#000";
       }
 
-      // Blend both position and velocity for smooth correction
+      // Blend both position and velocity for smooth correction (local prediction)
       if (predictedPlayerRef.current) {
         if (correctionTargetRef.current && correctionStartRef.current) {
           const nowSec = performance.now() / 1000;
@@ -367,21 +438,15 @@ export function GameCanvas() {
             correctionTargetRef.current = null;
           }
         }
-        ctx.beginPath();
-        ctx.arc(
-          predictedPlayerRef.current.x,
-          predictedPlayerRef.current.y,
-          10,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
+        // No need to draw local player separately; all players are drawn above
       }
 
       for (const s of snowballs) {
         ctx.beginPath();
-        ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, SNOWBALL_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = s.ownerId === playerIdRef.current ? "#00f" : "#aaa";
         ctx.fill();
+        ctx.fillStyle = "#000";
       }
 
       rafId = requestAnimationFrame(draw);
