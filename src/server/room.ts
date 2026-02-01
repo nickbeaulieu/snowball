@@ -153,11 +153,12 @@ export class Room extends DurableObject<Env> {
         player.y = Math.max(0, Math.min(this.worldSize, player.y));
       }
 
-      // Broadcast state
-      const snapshot: ServerSnapshot = {
+      // Broadcast state with server timestamp (ms since epoch)
+      const snapshot: ServerSnapshot & { timestamp: number } = {
         type: "state",
         players: Array.from(this.players.values()),
         snowballs: [], // add later
+        timestamp: Date.now(),
       };
 
       for (const ws of this.sockets.keys()) {

@@ -6,6 +6,13 @@ type Player = {
   y: number;
 };
 
+type ServerSnapshot = {
+  type: string;
+  players: Player[];
+  snowballs: Snowball[];
+  timestamp: number;
+};
+
 type Snowball = {
   x: number;
   y: number;
@@ -43,12 +50,16 @@ export function GameCanvas() {
 
   const playerIdRef = useRef<string>(getClientId());
 
-  const serverStateRef = useRef<GameState>({
-    players: [],
-    snowballs: [],
-  });
+  // Buffer of recent server snapshots for interpolation
+  const snapshotBufferRef = useRef<ServerSnapshot[]>([]);
 
   const predictedPlayerRef = useRef<Player | null>(null);
+  // For robust smoothing corrections
+  const correctionStartRef = useRef<Player | null>(null);
+  const correctionTargetRef = useRef<Player | null>(null);
+  const correctionStartTimeRef = useRef<number>(0);
+  const CORRECTION_DURATION = 0.08; // seconds (80ms)
+  const CORRECTION_THRESHOLD = 2; // pixels
 
   const keysRef = useRef<Record<string, boolean>>({});
 
@@ -69,19 +80,41 @@ export function GameCanvas() {
       const msg = JSON.parse(e.data);
       if (msg.type !== "state") return;
 
-      serverStateRef.current = msg;
+      // Buffer the snapshot for interpolation
+      snapshotBufferRef.current.push(msg);
+      // Keep only the last 20 snapshots (tune as needed)
+      if (snapshotBufferRef.current.length > 20) {
+        snapshotBufferRef.current.shift();
+      }
 
+      // Find local player for prediction/reconciliation
       const me = msg.players.find((p) => p.id === playerIdRef.current);
       if (!me) return;
 
-      // Reset prediction to authoritative state
-      predictedPlayerRef.current = { ...me };
-
-      // Reapply unacknowledged inputs
-      for (const input of pendingInputsRef.current) {
-        if (input.seq > me.lastProcessedInput) {
-          applyInputPrediction(input);
+      // Robust correction: only start a new correction if error is significant
+      if (predictedPlayerRef.current) {
+        const dx = me.x - predictedPlayerRef.current.x;
+        const dy = me.y - predictedPlayerRef.current.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > CORRECTION_THRESHOLD) {
+          correctionStartRef.current = { ...predictedPlayerRef.current };
+          correctionTargetRef.current = { ...me };
+          correctionStartTimeRef.current = performance.now() / 1000;
         }
+        // If already correcting, let the blend finish
+      } else {
+        predictedPlayerRef.current = { ...me };
+        correctionStartRef.current = null;
+        correctionTargetRef.current = null;
+      }
+
+      // Reapply only the last unacknowledged input (to match server logic)
+      const unacked = pendingInputsRef.current.filter(
+        (i) => i.seq > me.lastProcessedInput,
+      );
+      if (unacked.length > 0) {
+        // Only apply the last one
+        applyInputPrediction(unacked[unacked.length - 1]);
       }
 
       // Drop acknowledged inputs
@@ -158,7 +191,7 @@ export function GameCanvas() {
 
       // Apply prediction locally
       applyInputPrediction(input);
-    }, 50);
+    }, 33); // Match server tick (30Hz)
 
     return () => clearInterval(interval);
   }, []);
@@ -172,26 +205,93 @@ export function GameCanvas() {
     const ctx = canvas.getContext("2d")!;
     let rafId: number;
 
+    // Interpolation settings
+    const INTERP_DELAY = 100; // ms
+
+    function interpolatePlayers(buffer: ServerSnapshot[], renderTime: number) {
+      // Find two snapshots to interpolate between
+      if (buffer.length < 2) return { players: [], snowballs: [] };
+      let older = null,
+        newer = null;
+      for (let i = buffer.length - 2; i >= 0; --i) {
+        if (
+          buffer[i].timestamp <= renderTime &&
+          buffer[i + 1].timestamp >= renderTime
+        ) {
+          older = buffer[i];
+          newer = buffer[i + 1];
+          break;
+        }
+      }
+      if (!older || !newer) {
+        // Not enough data, use latest
+        const last = buffer[buffer.length - 1];
+        return { players: last.players, snowballs: last.snowballs };
+      }
+      const t =
+        (renderTime - older.timestamp) / (newer.timestamp - older.timestamp);
+      // Interpolate all players
+      const players: Player[] = older.players.map((op) => {
+        const np = newer.players.find((p) => p.id === op.id);
+        if (!np) return op;
+        return {
+          id: op.id,
+          x: op.x + (np.x - op.x) * t,
+          y: op.y + (np.y - op.y) * t,
+        };
+      });
+      // Interpolate snowballs if needed (simple copy for now)
+      return { players, snowballs: newer.snowballs };
+    }
+
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // ctx.fillStyle = "green";
-      // ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      const { players, snowballs } = serverStateRef.current;
+      // Calculate render time for interpolation
+      const now = Date.now();
+      const renderTime = now - INTERP_DELAY;
 
+      // Interpolate remote players
+      const { players, snowballs } = interpolatePlayers(
+        snapshotBufferRef.current,
+        renderTime,
+      );
+
+      // Draw remote players (excluding local)
       for (const p of players) {
-        const isMe = p.id === playerIdRef.current;
-        const renderPlayer =
-          isMe && predictedPlayerRef.current ? predictedPlayerRef.current : p;
-
+        if (p.id === playerIdRef.current) continue;
         ctx.beginPath();
-        ctx.arc(renderPlayer.x, renderPlayer.y, 10, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      for (const p of players) {
+      // Robustly blend predicted position toward correction target if needed
+      if (predictedPlayerRef.current) {
+        if (correctionTargetRef.current && correctionStartRef.current) {
+          const nowSec = performance.now() / 1000;
+          const t = Math.min(
+            (nowSec - correctionStartTimeRef.current) / CORRECTION_DURATION,
+            1,
+          );
+          predictedPlayerRef.current.x =
+            correctionStartRef.current.x +
+            (correctionTargetRef.current.x - correctionStartRef.current.x) * t;
+          predictedPlayerRef.current.y =
+            correctionStartRef.current.y +
+            (correctionTargetRef.current.y - correctionStartRef.current.y) * t;
+          if (t >= 1) {
+            correctionStartRef.current = null;
+            correctionTargetRef.current = null;
+          }
+        }
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.arc(
+          predictedPlayerRef.current.x,
+          predictedPlayerRef.current.y,
+          10,
+          0,
+          Math.PI * 2,
+        );
         ctx.fill();
       }
 
