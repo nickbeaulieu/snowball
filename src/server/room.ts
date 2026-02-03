@@ -5,7 +5,6 @@ import {
   type Player,
   type Team,
   type FlagState,
-  type GameState,
 } from "../types";
 import {
   ACCELERATION,

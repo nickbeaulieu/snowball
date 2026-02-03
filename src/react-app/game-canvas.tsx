@@ -14,7 +14,7 @@ import {
   PLAYER_RADIUS,
 } from "../constants";
 
-import type { Player, ServerSnapshot, Snowball, FlagState } from "../types";
+import type { Player, ServerSnapshot, Snowball } from "../types";
 
 function getClientId(): string {
   let id = localStorage.getItem("clientId");
