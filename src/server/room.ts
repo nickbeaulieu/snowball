@@ -497,6 +497,20 @@ export class Room extends DurableObject<Env> {
           s.y >= 0 &&
           s.y <= this.worldHeight,
       );
+      // Remove snowballs that hit walls
+      this.snowballs = this.snowballs.filter((s) => {
+        for (const wall of WALLS) {
+          if (
+            s.x + SNOWBALL_RADIUS > wall.x &&
+            s.x - SNOWBALL_RADIUS < wall.x + wall.width &&
+            s.y + SNOWBALL_RADIUS > wall.y &&
+            s.y - SNOWBALL_RADIUS < wall.y + wall.height
+          ) {
+            return false; // Remove snowball if it hits a wall
+          }
+        }
+        return true; // Keep snowball if no collision
+      });
       // Collision detection (simple): snowball hits any player except owner
       for (const snowball of this.snowballs) {
         for (const player of this.players.values()) {
