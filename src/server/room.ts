@@ -391,8 +391,43 @@ export class Room extends DurableObject<Env> {
             const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
 
             if (pdist < PLAYER_RADIUS * 2) {
-              // If opponent has a flag, they "pop" and flag returns to base
-              if (other.carryingFlag) {
+              // If both players have flags, both "pop" and flags return to base
+              if (player.carryingFlag && other.carryingFlag) {
+                const playerFlagTeam = player.carryingFlag;
+                const otherFlagTeam = other.carryingFlag;
+
+                // Return player's flag to base
+                this.flags[playerFlagTeam].carriedBy = undefined;
+                this.flags[playerFlagTeam].atBase = true;
+                this.flags[playerFlagTeam].dropped = false;
+                this.flags[playerFlagTeam].x =
+                  playerFlagTeam === "red" ? 80 : this.worldWidth - 80;
+                this.flags[playerFlagTeam].y = this.worldHeight / 2;
+
+                // Return other's flag to base
+                this.flags[otherFlagTeam].carriedBy = undefined;
+                this.flags[otherFlagTeam].atBase = true;
+                this.flags[otherFlagTeam].dropped = false;
+                this.flags[otherFlagTeam].x =
+                  otherFlagTeam === "red" ? 80 : this.worldWidth - 80;
+                this.flags[otherFlagTeam].y = this.worldHeight / 2;
+
+                // Respawn both players
+                player.x =
+                  player.team === "red" ? 120 : this.worldWidth - 120;
+                player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                player.vx = 0;
+                player.vy = 0;
+                player.carryingFlag = undefined;
+
+                other.x =
+                  other.team === "red" ? 120 : this.worldWidth - 120;
+                other.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                other.vx = 0;
+                other.vy = 0;
+                other.carryingFlag = undefined;
+              } else if (other.carryingFlag) {
+                // If opponent has a flag, they "pop" and flag returns to base
                 const flagTeam = other.carryingFlag;
                 this.flags[flagTeam].carriedBy = undefined;
                 this.flags[flagTeam].atBase = true;
@@ -408,13 +443,38 @@ export class Room extends DurableObject<Env> {
                 other.vx = 0;
                 other.vy = 0;
                 other.carryingFlag = undefined;
-              } else if (!player.carryingFlag) {
-                // If neither has a flag, collision causes defender to respawn
+              } else if (player.carryingFlag) {
+                // If current player has a flag, they "pop" and flag returns to base
+                const flagTeam = player.carryingFlag;
+                this.flags[flagTeam].carriedBy = undefined;
+                this.flags[flagTeam].atBase = true;
+                this.flags[flagTeam].dropped = false;
+                this.flags[flagTeam].x =
+                  flagTeam === "red" ? 80 : this.worldWidth - 80;
+                this.flags[flagTeam].y = this.worldHeight / 2;
+
+                // Respawn the current player
                 player.x =
                   player.team === "red" ? 120 : this.worldWidth - 120;
                 player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
                 player.vx = 0;
                 player.vy = 0;
+                player.carryingFlag = undefined;
+              } else {
+                // Neither player has a flag - apply collision physics to make them bounce
+                // Calculate collision normal (from other to player)
+                const nx = pdx / pdist;
+                const ny = pdy / pdist;
+
+                // Calculate overlap distance
+                const overlap = PLAYER_RADIUS * 2 - pdist;
+
+                // Push both players apart by half the overlap distance
+                const separation = overlap / 2;
+                player.x += nx * separation;
+                player.y += ny * separation;
+                other.x -= nx * separation;
+                other.y -= ny * separation;
               }
             }
           }
