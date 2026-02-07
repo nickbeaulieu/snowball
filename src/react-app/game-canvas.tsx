@@ -52,6 +52,24 @@ export function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Setup canvas for Retina/high-DPI displays
+  function setupCanvasForRetina(canvas: HTMLCanvasElement): number {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+
+    // Set backing store size to physical pixels
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+
+    // Get context and scale to compensate for DPR
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+    }
+
+    return dpr;
+  }
+
   const playerIdRef = useRef<string>(getClientId());
 
   // Buffer of recent server snapshots for interpolation
@@ -103,10 +121,13 @@ export function GameCanvas() {
       let camX = 0,
         camY = 0;
       if (predictedPlayerRef.current && canvas) {
-        camX = predictedPlayerRef.current.x - canvas.width / 2;
-        camY = predictedPlayerRef.current.y - canvas.height / 2;
-        camX = Math.max(0, Math.min(WORLD_WIDTH - canvas.width, camX));
-        camY = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, camY));
+        const dpr = window.devicePixelRatio || 1;
+        const logicalWidth = canvas.width / dpr;
+        const logicalHeight = canvas.height / dpr;
+        camX = predictedPlayerRef.current.x - logicalWidth / 2;
+        camY = predictedPlayerRef.current.y - logicalHeight / 2;
+        camX = Math.max(0, Math.min(WORLD_WIDTH - logicalWidth, camX));
+        camY = Math.max(0, Math.min(WORLD_HEIGHT - logicalHeight, camY));
       }
       // Mouse position in world coordinates
       const mouseX = e.clientX - rect.left + camX;
@@ -347,12 +368,31 @@ export function GameCanvas() {
     function resize() {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      setupCanvasForRetina(canvas);
     }
     resize();
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
+  }, []);
+
+  // Handle DPR changes (external monitor, browser zoom)
+  useEffect(() => {
+    let lastDpr = window.devicePixelRatio || 1;
+
+    const checkDprChange = () => {
+      const currentDpr = window.devicePixelRatio || 1;
+      if (currentDpr !== lastDpr) {
+        lastDpr = currentDpr;
+        const canvas = canvasRef.current;
+        if (canvas) setupCanvasForRetina(canvas);
+      }
+    };
+
+    // Check for DPR changes using matchMedia
+    const mediaQuery = window.matchMedia(`(resolution: ${lastDpr}dppx)`);
+    mediaQuery.addEventListener('change', checkDprChange);
+
+    return () => mediaQuery.removeEventListener('change', checkDprChange);
   }, []);
 
   useEffect(() => {
@@ -433,7 +473,8 @@ export function GameCanvas() {
         renderTime,
       );
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const dpr = window.devicePixelRatio || 1;
+      ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
       // Camera follow logic
       const localPlayer = players.find(
@@ -442,11 +483,14 @@ export function GameCanvas() {
       let camX = 0,
         camY = 0;
       if (localPlayer) {
-        camX = localPlayer.x - canvas.width / 2;
-        camY = localPlayer.y - canvas.height / 2;
+        const dpr = window.devicePixelRatio || 1;
+        const logicalWidth = canvas.width / dpr;
+        const logicalHeight = canvas.height / dpr;
+        camX = localPlayer.x - logicalWidth / 2;
+        camY = localPlayer.y - logicalHeight / 2;
         // Clamp camera to world bounds
-        camX = Math.max(0, Math.min(WORLD_WIDTH - canvas.width, camX));
-        camY = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, camY));
+        camX = Math.max(0, Math.min(WORLD_WIDTH - logicalWidth, camX));
+        camY = Math.max(0, Math.min(WORLD_HEIGHT - logicalHeight, camY));
       }
 
       ctx.save();
@@ -520,7 +564,8 @@ export function GameCanvas() {
 
       // Draw score display (in screen space)
       ctx.restore();
-      drawScoreDisplay(ctx, canvas.width, scores?.red ?? 0, scores?.blue ?? 0);
+      const dprScore = window.devicePixelRatio || 1;
+      drawScoreDisplay(ctx, canvas.width / dprScore, scores?.red ?? 0, scores?.blue ?? 0);
 
       rafId = requestAnimationFrame(draw);
     };
