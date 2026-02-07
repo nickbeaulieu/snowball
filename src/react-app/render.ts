@@ -290,27 +290,55 @@ export function drawSnowballs(
 export function drawScoreDisplay(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
+  canvasHeight: number,
   redScore: number,
-  blueScore: number
+  blueScore: number,
+  timeRemaining?: number
 ): void {
   ctx.save();
 
-  // Draw menu bar background
-  ctx.globalAlpha = 0.95;
-  ctx.fillStyle = "#f5f5f5";
-  ctx.fillRect(0, 0, canvasWidth, 48);
-  ctx.globalAlpha = 1;
+  // Position at bottom (30px from bottom edge for larger text)
+  const bottomY = canvasHeight - 30;
 
-  // Draw scores
-  ctx.font = "bold 24px sans-serif";
-  ctx.textAlign = "center";
+  // Format timer as M:SS
+  let clockText = "";
+  if (timeRemaining !== undefined) {
+    const minutes = Math.floor(timeRemaining / 60);
+    const seconds = Math.floor(timeRemaining % 60);
+    clockText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  // Calculate positions with fixed clock width
+  const centerX = canvasWidth / 2;
+  ctx.font = "bold 24px monospace";
+  const clockWidth = ctx.measureText(clockText || "00:00").width;
+  const spacing = 50;
+
+  const leftScoreX = centerX - clockWidth / 2 - spacing;
+  const clockX = centerX;
+  const rightScoreX = centerX + clockWidth / 2 + spacing;
+
   ctx.textBaseline = "middle";
 
+  // Draw red score (left)
   ctx.fillStyle = "#e53935";
-  ctx.fillText(`Red: ${redScore}`, canvasWidth / 2 - 80, 24);
+  ctx.font = "bold 36px sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(`${redScore}`, leftScoreX, bottomY);
 
+  // Draw clock (center) - original size
+  if (clockText) {
+    ctx.fillStyle = "#333";
+    ctx.font = "bold 24px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(clockText, clockX, bottomY + 2);
+  }
+
+  // Draw blue score (right)
   ctx.fillStyle = "#1976d2";
-  ctx.fillText(`Blue: ${blueScore}`, canvasWidth / 2 + 80, 24);
+  ctx.font = "bold 36px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(`${blueScore}`, rightScoreX, bottomY);
 
   ctx.restore();
 }

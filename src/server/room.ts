@@ -682,6 +682,12 @@ export class Room extends DurableObject<Env> {
         }
       }
 
+      // Calculate time remaining
+      const timeRemaining =
+        this.config.timeLimit > 0 && this.gameStartTime
+          ? Math.max(0, this.config.timeLimit - (now - this.gameStartTime) / 1000)
+          : undefined;
+
       // Broadcast state with server timestamp (ms since epoch)
       const snapshot: ServerSnapshot = {
         type: "state",
@@ -696,6 +702,7 @@ export class Room extends DurableObject<Env> {
           })),
           flags: { ...this.flags },
           scores: { ...this.scores },
+          timeRemaining,
         },
         timestamp: Date.now(),
       };

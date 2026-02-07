@@ -30,6 +30,7 @@ export type GameState = {
   snowballs: Snowball[];
   flags: Record<Team, FlagState>; // each team has their own flag
   scores: Record<Team, number>;
+  timeRemaining?: number; // seconds remaining in game (if time limit set)
 };
 
 export type ServerSnapshot = {

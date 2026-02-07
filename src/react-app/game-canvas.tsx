@@ -92,6 +92,9 @@ export function GameCanvas({ websocket, config, clientId }: GameCanvasProps) {
   // Store pending input messages for client-side prediction
   const pendingInputsRef = useRef<InputMsg[]>([]);
 
+  // Store time remaining for access in render loop (updated from game state)
+  const timeRemainingRef = useRef<number | undefined>(undefined);
+
   // Track when the player last threw a snowball (for cooldown)
   const lastThrowTimeRef = useRef<number>(0);
   // Handle snowball throw input (spacebar or mouse click)
@@ -179,6 +182,9 @@ export function GameCanvas({ websocket, config, clientId }: GameCanvasProps) {
     const handleMessage = (e: MessageEvent) => {
       const msg = JSON.parse(e.data);
       if (msg.type !== "state") return;
+
+      // Update time remaining from game state
+      timeRemainingRef.current = msg.state.timeRemaining;
 
       // Buffer the snapshot for interpolation
       snapshotBufferRef.current.push(msg);
@@ -565,7 +571,14 @@ export function GameCanvas({ websocket, config, clientId }: GameCanvasProps) {
       // Draw score display (in screen space)
       ctx.restore();
       const dprScore = window.devicePixelRatio || 1;
-      drawScoreDisplay(ctx, canvas.width / dprScore, scores?.red ?? 0, scores?.blue ?? 0);
+      drawScoreDisplay(
+        ctx,
+        canvas.width / dprScore,
+        canvas.height / dprScore,
+        scores?.red ?? 0,
+        scores?.blue ?? 0,
+        timeRemainingRef.current
+      );
 
       rafId = requestAnimationFrame(draw);
     };
