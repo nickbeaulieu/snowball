@@ -102,12 +102,9 @@ export function GameCanvas() {
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.code === "Space") {
-        // Try to drop flag if carrying, else throw snowball
         const player = predictedPlayerRef.current;
         if (player && player.carryingFlag) {
           wsRef.current?.send(JSON.stringify({ type: "drop_flag" }));
-        } else {
-          throwSnowball();
         }
       }
     };
@@ -210,6 +207,10 @@ export function GameCanvas() {
         correctionStartRef.current = null;
         correctionTargetRef.current = null;
       } else {
+        // Sync non-predicted state from server (flags, hit state, etc.)
+        predictedPlayerRef.current.carryingFlag = me.carryingFlag;
+        predictedPlayerRef.current.hit = me.hit;
+        predictedPlayerRef.current.hitTime = me.hitTime;
         const dx = me.x - predictedPlayerRef.current.x;
         const dy = me.y - predictedPlayerRef.current.y;
         const dvx = (me.vx ?? 0) - (predictedPlayerRef.current.vx ?? 0);
@@ -409,15 +410,21 @@ export function GameCanvas() {
       buffer: ServerSnapshot[],
       renderTime: number,
     ) {
-      if (buffer.length < 2)
+      if (buffer.length === 0) {
         return {
           players: [],
           snowballs: [],
           flags: { red: undefined, blue: undefined },
           scores: { red: 0, blue: 0 },
         };
+      }
+
+      if (buffer.length === 1) {
+        return buffer[0].state;
+      }
       let older: ServerSnapshot | null = null,
         newer: ServerSnapshot | null = null;
+
       for (let i = buffer.length - 2; i >= 0; --i) {
         const curr = buffer[i];
         const next = buffer[i + 1];
@@ -445,14 +452,16 @@ export function GameCanvas() {
       }
       const t =
         (renderTime - older.timestamp) / (newer.timestamp - older.timestamp);
-      // Interpolate players (position only)
-      const players = older.state.players.map((op: Player) => {
-        const np = newer!.state.players.find((p: Player) => p.id === op.id);
-        if (!np) return { ...op };
+      // Interpolate players (position only, use newer state for other properties)
+      const players = newer.state.players.map((np: Player) => {
+        const op = older.state.players.find((p: Player) => p.id === np.id);
+        if (!op) return { ...np };
         return {
-          ...op,
+          ...np, // Use newer snapshot for non-interpolated properties
           x: op.x + (np.x - op.x) * t,
           y: op.y + (np.y - op.y) * t,
+          vx: (op.vx ?? 0) + ((np.vx ?? 0) - (op.vx ?? 0)) * t,
+          vy: (op.vy ?? 0) + ((np.vy ?? 0) - (op.vy ?? 0)) * t,
         };
       });
       // No interpolation for flags/scores

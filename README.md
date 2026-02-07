@@ -3,4 +3,3 @@
 - zone is a safe zone
 - thin ice can fall through and you go back home
 - lobby mechanism, team decider
-- drop the flag with spacebar and your team could pick it up

@@ -201,6 +201,7 @@ export class Room extends DurableObject<Env> {
           this.flags[flagTeam].x = player.x;
           this.flags[flagTeam].y = player.y;
           player.carryingFlag = undefined;
+          player.lastDropTime = Date.now(); // Set cooldown
         }
       }
     }
@@ -309,6 +310,7 @@ export class Room extends DurableObject<Env> {
 
         // --- TWO-FLAG CTF LOGIC ---
         const FLAG_PICKUP_RADIUS = PLAYER_RADIUS + 18;
+        const FLAG_PICKUP_COOLDOWN = 500; // ms after dropping before can pick up again
 
         // 1. Try to pick up ENEMY flag (can only carry one flag at a time)
         if (!player.carryingFlag) {
@@ -319,8 +321,11 @@ export class Room extends DurableObject<Env> {
           const dy = player.y - enemyFlag.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          // Can pick up if: not already carried AND close enough
-          if (dist < FLAG_PICKUP_RADIUS && !enemyFlag.carriedBy) {
+          // Check if cooldown has expired (prevent immediate re-pickup after drop)
+          const cooldownExpired = !player.lastDropTime || (now - player.lastDropTime) > FLAG_PICKUP_COOLDOWN;
+
+          // Can pick up if: not already carried AND close enough AND cooldown expired
+          if (dist < FLAG_PICKUP_RADIUS && !enemyFlag.carriedBy && cooldownExpired) {
             enemyFlag.carriedBy = player.id;
             enemyFlag.atBase = false;
             enemyFlag.dropped = false;
