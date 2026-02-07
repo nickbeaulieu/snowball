@@ -1,4 +1,3 @@
-- make the walls more even, symmetrical
 - preview of map, or minimap
 - snowballs need to look more like snowballs
 - snowballs should go a little bit faster

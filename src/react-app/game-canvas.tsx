@@ -12,6 +12,7 @@ import {
   WORLD_WIDTH,
   WORLD_HEIGHT,
   PLAYER_RADIUS,
+  GRID_SIZE,
 } from "../constants";
 
 import type { Player, ServerSnapshot, Snowball } from "../types";
@@ -442,7 +443,7 @@ export function GameCanvas() {
 
       // Draw off-white grid background
       ctx.fillStyle = "#f9f9f6"; // off-white
-      const gridSize = 40;
+      const gridSize = GRID_SIZE;
 
       ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
       ctx.beginPath();
