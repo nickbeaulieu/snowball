@@ -1,15 +1,14 @@
-import { GameCanvas } from "./game-canvas";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HomePage } from "./pages/HomePage";
+import { RoomPage } from "./pages/RoomPage";
 
 export default function App() {
   return (
-    <div>
-      <header>
-        <h1>❄️ Snowball CTF</h1>
-      </header>
-
-      <GameCanvas />
-
-      <footer>WASD to move · Click to throw</footer>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/room/:roomId" element={<RoomPage />} />
+      </Routes>
+    </BrowserRouter>
   );
 }

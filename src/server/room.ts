@@ -5,6 +5,10 @@ import {
   type Player,
   type Team,
   type FlagState,
+  type RoomPhase,
+  type RoomConfig,
+  type PlayerReadyState,
+  type ClientMessage,
 } from "../types";
 import {
   ACCELERATION,
@@ -52,6 +56,18 @@ export class Room extends DurableObject<Env> {
   };
   scores: Record<Team, number> = { red: 0, blue: 0 };
 
+  // Lobby and game phase management
+  phase: RoomPhase = "lobby";
+  config: RoomConfig = {
+    scoreLimit: 5,
+    timeLimit: 600, // 10 minutes in seconds
+    allowManualTeams: true,
+  };
+  readyStates: Map<string, PlayerReadyState> = new Map();
+  hostId?: string;
+  gameStartTime?: number;
+  winner?: Team;
+
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
   }
@@ -91,15 +107,24 @@ export class Room extends DurableObject<Env> {
 
     this.sockets.set(ws, playerId);
 
+    // Set host to first player
+    if (!this.hostId) {
+      this.hostId = playerId;
+    }
+
     if (!this.players.has(playerId)) {
-      // Assign team: balance by count
-      const redCount = Array.from(this.players.values()).filter(
-        (p) => p.team === "red",
-      ).length;
-      const blueCount = Array.from(this.players.values()).filter(
-        (p) => p.team === "blue",
-      ).length;
-      const team: Team = redCount <= blueCount ? "red" : "blue";
+      // Assign team: balance by count if auto-balance, or default to red if manual
+      let team: Team = "red";
+      if (!this.config.allowManualTeams || this.phase === "playing") {
+        const redCount = Array.from(this.players.values()).filter(
+          (p) => p.team === "red",
+        ).length;
+        const blueCount = Array.from(this.players.values()).filter(
+          (p) => p.team === "blue",
+        ).length;
+        team = redCount <= blueCount ? "red" : "blue";
+      }
+
       this.players.set(playerId, {
         id: playerId,
         x: team === "red" ? 120 : this.worldWidth - 120,
@@ -114,11 +139,29 @@ export class Room extends DurableObject<Env> {
         hitTime: 0,
         team,
       });
+
+      // Initialize ready state for new player
+      if (!this.readyStates.has(playerId)) {
+        this.readyStates.set(playerId, {
+          playerId,
+          isReady: false,
+          selectedTeam: team,
+        });
+      }
+    } else {
+      // Update lastSeen for reconnecting player
+      const player = this.players.get(playerId);
+      if (player) {
+        player.lastSeen = Date.now();
+      }
     }
 
     ws.addEventListener("message", (e) => this.onMessage(ws, e));
     ws.addEventListener("close", () => this.onDisconnect(ws));
     ws.addEventListener("error", () => this.onDisconnect(ws));
+
+    // Broadcast lobby state to all clients
+    this.broadcastLobbyState();
 
     if (!this.tickInterval) this.startGameLoop();
   }
@@ -140,6 +183,23 @@ export class Room extends DurableObject<Env> {
 
     this.sockets.delete(ws);
     this.players.delete(playerId);
+    this.readyStates.delete(playerId);
+
+    // Handle host migration if host disconnected
+    if (playerId === this.hostId) {
+      // Assign new host (oldest remaining player)
+      const remainingPlayers = Array.from(this.players.keys());
+      if (remainingPlayers.length > 0) {
+        this.hostId = remainingPlayers[0];
+      } else {
+        this.hostId = undefined;
+      }
+    }
+
+    // Broadcast updated lobby state
+    if (this.players.size > 0) {
+      this.broadcastLobbyState();
+    }
 
     if (this.players.size === 0 && this.tickInterval) {
       clearInterval(this.tickInterval);
@@ -155,8 +215,11 @@ export class Room extends DurableObject<Env> {
 
     player.lastSeen = Date.now();
 
-    const msg = JSON.parse(e.data);
+    const msg = JSON.parse(e.data) as ClientMessage;
+
     if (msg.type === "input") {
+      // Only process input during playing phase
+      if (this.phase !== "playing") return;
       // Validate sequence
       if (typeof msg.seq !== "number") return;
       player.input = {
@@ -167,6 +230,8 @@ export class Room extends DurableObject<Env> {
       };
       player.lastProcessedInput = msg.seq;
     } else if (msg.type === "throw") {
+      // Only allow throwing during playing phase
+      if (this.phase !== "playing") return;
       // Throw a snowball in the given direction
       if (
         !msg.dir ||
@@ -191,6 +256,8 @@ export class Room extends DurableObject<Env> {
         });
       }
     } else if (msg.type === "drop_flag") {
+      // Only allow dropping flag during playing phase
+      if (this.phase !== "playing") return;
       // Drop carried flag at current position
       if (player.carryingFlag) {
         const flagTeam = player.carryingFlag;
@@ -204,6 +271,46 @@ export class Room extends DurableObject<Env> {
           player.lastDropTime = Date.now(); // Set cooldown
         }
       }
+    } else if (msg.type === "ready") {
+      // Toggle ready state in lobby
+      if (this.phase !== "lobby") return;
+      const readyState = this.readyStates.get(playerId);
+      if (readyState) {
+        readyState.isReady = msg.ready;
+        this.broadcastLobbyState();
+      }
+    } else if (msg.type === "select_team") {
+      // Change team selection in lobby (only if manual teams enabled)
+      if (this.phase !== "lobby" || !this.config.allowManualTeams) return;
+      const readyState = this.readyStates.get(playerId);
+      if (readyState && player) {
+        readyState.selectedTeam = msg.team;
+        player.team = msg.team;
+        // Update spawn position based on team
+        player.x = msg.team === "red" ? 120 : this.worldWidth - 120;
+        this.broadcastLobbyState();
+      }
+    } else if (msg.type === "update_config") {
+      // Update game config (host only)
+      if (this.phase !== "lobby" || playerId !== this.hostId) return;
+      if (msg.config.scoreLimit !== undefined) {
+        this.config.scoreLimit = Math.max(0, msg.config.scoreLimit);
+      }
+      if (msg.config.timeLimit !== undefined) {
+        this.config.timeLimit = Math.max(0, msg.config.timeLimit);
+      }
+      if (msg.config.allowManualTeams !== undefined) {
+        this.config.allowManualTeams = msg.config.allowManualTeams;
+      }
+      this.broadcastLobbyState();
+    } else if (msg.type === "start_game") {
+      // Start the game (host only)
+      if (this.phase !== "lobby" || playerId !== this.hostId) return;
+      this.startGame();
+    } else if (msg.type === "reset_game") {
+      // Reset game back to lobby (host only)
+      if (this.phase !== "finished" || playerId !== this.hostId) return;
+      this.resetGame();
     }
   }
 
@@ -221,6 +328,26 @@ export class Room extends DurableObject<Env> {
     this.tickInterval = setInterval(() => {
       const dt = DT;
       const now = Date.now();
+
+      // Always broadcast lobby state to keep clients updated
+      if (this.phase === "lobby" || this.phase === "finished") {
+        this.broadcastLobbyState();
+      }
+
+      // Only run game physics during playing phase
+      if (this.phase !== "playing") {
+        return;
+      }
+
+      // Check time limit win condition
+      if (
+        this.config.timeLimit > 0 &&
+        this.gameStartTime &&
+        now - this.gameStartTime >= this.config.timeLimit * 1000
+      ) {
+        this.endGame();
+        return;
+      }
 
       // Remove stale players
       for (const [id, player] of this.players) {
@@ -374,6 +501,15 @@ export class Room extends DurableObject<Env> {
             // Can only score if your flag is at home
             if (ownFlag.atBase && carriedFlag.carriedBy === player.id) {
               this.scores[player.team]++;
+
+              // Check score limit win condition
+              if (
+                this.config.scoreLimit > 0 &&
+                this.scores[player.team] >= this.config.scoreLimit
+              ) {
+                this.endGame(player.team);
+                return;
+              }
 
               // Return enemy flag to their base
               carriedFlag.atBase = true;
@@ -572,5 +708,114 @@ export class Room extends DurableObject<Env> {
         }
       }
     }, TICK);
+  }
+
+  broadcastLobbyState() {
+    const timeRemaining =
+      this.phase === "playing" && this.gameStartTime && this.config.timeLimit > 0
+        ? Math.max(0, this.config.timeLimit - (Date.now() - this.gameStartTime) / 1000)
+        : undefined;
+
+    const lobbyState = {
+      type: "lobby_state" as const,
+      phase: this.phase,
+      config: this.config,
+      readyStates: Array.from(this.readyStates.values()),
+      hostId: this.hostId || "",
+      timeRemaining,
+      winner: this.winner,
+    };
+
+    for (const ws of this.sockets.keys()) {
+      try {
+        ws.send(JSON.stringify(lobbyState));
+      } catch (err) {
+        console.error("Failed to send lobby state:", err);
+      }
+    }
+  }
+
+  startGame() {
+    // Transition from lobby to playing phase
+    this.phase = "playing";
+    this.gameStartTime = Date.now();
+    this.winner = undefined;
+
+    // Reset game state
+    this.scores = { red: 0, blue: 0 };
+    this.snowballs = [];
+
+    // Reset flags to base
+    this.flags = {
+      red: {
+        x: 80,
+        y: this.worldHeight / 2,
+        atBase: true,
+        carriedBy: undefined,
+        dropped: false,
+      },
+      blue: {
+        x: this.worldWidth - 80,
+        y: this.worldHeight / 2,
+        atBase: true,
+        carriedBy: undefined,
+        dropped: false,
+      },
+    };
+
+    // Apply team selections and reset player positions
+    for (const [playerId, readyState] of this.readyStates) {
+      const player = this.players.get(playerId);
+      if (player && readyState.selectedTeam) {
+        player.team = readyState.selectedTeam;
+        player.x = player.team === "red" ? 120 : this.worldWidth - 120;
+        player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+        player.vx = 0;
+        player.vy = 0;
+        player.hit = false;
+        player.carryingFlag = undefined;
+      }
+    }
+
+    // Broadcast lobby state to notify clients of phase change
+    this.broadcastLobbyState();
+  }
+
+  endGame(winningTeam?: Team) {
+    // Transition to finished phase
+    this.phase = "finished";
+
+    // Determine winner if not provided
+    if (!winningTeam) {
+      if (this.scores.red > this.scores.blue) {
+        this.winner = "red";
+      } else if (this.scores.blue > this.scores.red) {
+        this.winner = "blue";
+      }
+      // If tied, winner remains undefined
+    } else {
+      this.winner = winningTeam;
+    }
+
+    // Broadcast final state
+    this.broadcastLobbyState();
+  }
+
+  resetGame() {
+    // Transition back to lobby phase
+    this.phase = "lobby";
+    this.gameStartTime = undefined;
+    this.winner = undefined;
+
+    // Reset all ready states
+    for (const readyState of this.readyStates.values()) {
+      readyState.isReady = false;
+    }
+
+    // Reset scores
+    this.scores = { red: 0, blue: 0 };
+
+    // Broadcast lobby state
+    this.broadcastLobbyState();
   }
 }

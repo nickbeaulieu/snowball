@@ -15,7 +15,7 @@ import {
   GRID_SIZE,
 } from "../constants";
 
-import type { Player, ServerSnapshot, Snowball } from "../types";
+import type { Player, ServerSnapshot, Snowball, RoomConfig } from "../types";
 
 import {
   drawGridBackground,
@@ -28,15 +28,6 @@ import {
   drawScoreDisplay,
 } from "./render";
 
-function getClientId(): string {
-  let id = localStorage.getItem("clientId");
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem("clientId", id);
-  }
-  return id;
-}
-
 let inputSeq = 0;
 type InputMsg = {
   seq: number;
@@ -48,9 +39,14 @@ type InputMsg = {
 
 // ...constants imported from ../constants
 
-export function GameCanvas() {
+type GameCanvasProps = {
+  websocket: WebSocket;
+  config: RoomConfig;
+  clientId: string;
+};
+
+export function GameCanvas({ websocket, config, clientId }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   // Setup canvas for Retina/high-DPI displays
   function setupCanvasForRetina(canvas: HTMLCanvasElement): number {
@@ -70,7 +66,7 @@ export function GameCanvas() {
     return dpr;
   }
 
-  const playerIdRef = useRef<string>(getClientId());
+  const playerIdRef = useRef<string>(clientId);
 
   // Buffer of recent server snapshots for interpolation
   const snapshotBufferRef = useRef<ServerSnapshot[]>([]);
@@ -104,7 +100,7 @@ export function GameCanvas() {
       if (e.code === "Space") {
         const player = predictedPlayerRef.current;
         if (player && player.carryingFlag) {
-          wsRef.current?.send(JSON.stringify({ type: "drop_flag" }));
+          websocket.send(JSON.stringify({ type: "drop_flag" }));
         }
       }
     };
@@ -168,7 +164,7 @@ export function GameCanvas() {
       dx /= len;
       dy /= len;
     }
-    wsRef.current?.send(
+    websocket.send(
       JSON.stringify({
         type: "throw",
         dir: { x: dx, y: dy },
@@ -178,15 +174,9 @@ export function GameCanvas() {
 
   /* ---------------- WebSocket ---------------- */
 
+  // Setup WebSocket message handler
   useEffect(() => {
-    if (wsRef.current) return; // StrictMode guard
-
-    const ws = new WebSocket(
-      `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/join?room=lobby&clientId=${getClientId()}`,
-    );
-    wsRef.current = ws;
-
-    ws.onmessage = (e) => {
+    const handleMessage = (e: MessageEvent) => {
       const msg = JSON.parse(e.data);
       if (msg.type !== "state") return;
 
@@ -263,11 +253,12 @@ export function GameCanvas() {
       );
     };
 
+    websocket.addEventListener("message", handleMessage);
+
     return () => {
-      ws.close();
-      wsRef.current = null;
+      websocket.removeEventListener("message", handleMessage);
     };
-  }, []);
+  }, [websocket, clientId]);
 
   /* ---------------- Keyboard input ---------------- */
 
@@ -350,7 +341,7 @@ export function GameCanvas() {
         right: !!keys["d"],
       };
 
-      wsRef.current?.send(JSON.stringify({ type: "input", ...input }));
+      websocket.send(JSON.stringify({ type: "input", ...input }));
 
       // Store input for prediction and reconciliation
       pendingInputsRef.current.push(input);
