@@ -13,7 +13,7 @@ export type Player = {
   hit: boolean;
   hitTime: number;
   team: Team;
-  carryingFlag?: boolean; // true if carrying the neutral flag
+  carryingFlag?: Team; // which flag (red or blue) is being carried
 };
 
 export type FlagState = {
@@ -27,7 +27,7 @@ export type FlagState = {
 export type GameState = {
   players: Player[];
   snowballs: Snowball[];
-  flag: FlagState;
+  flags: Record<Team, FlagState>; // each team has their own flag
   scores: Record<Team, number>;
 };
 

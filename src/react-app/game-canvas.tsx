@@ -361,7 +361,7 @@ export function GameCanvas() {
         return {
           players: [],
           snowballs: [],
-          flag: undefined,
+          flags: { red: undefined, blue: undefined },
           scores: { red: 0, blue: 0 },
         };
       let older: ServerSnapshot | null = null,
@@ -403,11 +403,11 @@ export function GameCanvas() {
           y: op.y + (np.y - op.y) * t,
         };
       });
-      // No interpolation for flag/scores
+      // No interpolation for flags/scores
       return {
         players,
         snowballs: newer.state.snowballs,
-        flag: newer.state.flag,
+        flags: newer.state.flags,
         scores: newer.state.scores,
       };
     }
@@ -416,7 +416,7 @@ export function GameCanvas() {
       // Interpolate remote players
       const now = Date.now();
       const renderTime = now - INTERP_DELAY;
-      const { players, snowballs, flag, scores } = interpolateGameState(
+      const { players, snowballs, flags, scores } = interpolateGameState(
         snapshotBufferRef.current,
         renderTime,
       );
@@ -526,24 +526,47 @@ export function GameCanvas() {
       ctx.setLineDash([]);
       ctx.restore();
 
-      // Draw central purple flag (if not carried)
-      if (flag && !flag.carriedBy) {
+      // Draw team flags (if not carried)
+      // Red flag (left base)
+      if (flags?.red && !flags.red.carriedBy) {
         ctx.save();
-        // Draw flag pole
         ctx.beginPath();
-        ctx.moveTo(flag.x, flag.y);
-        ctx.lineTo(flag.x, flag.y - 32);
+        ctx.moveTo(flags.red.x, flags.red.y);
+        ctx.lineTo(flags.red.x, flags.red.y - 32);
         ctx.strokeStyle = "#888";
         ctx.lineWidth = 4;
         ctx.stroke();
-        // Draw flag (purple)
         ctx.beginPath();
-        ctx.moveTo(flag.x, flag.y - 32);
-        ctx.lineTo(flag.x + 22, flag.y - 24);
-        ctx.lineTo(flag.x, flag.y - 16);
+        ctx.moveTo(flags.red.x, flags.red.y - 32);
+        ctx.lineTo(flags.red.x + 22, flags.red.y - 24);
+        ctx.lineTo(flags.red.x, flags.red.y - 16);
         ctx.closePath();
-        ctx.fillStyle = "#a020f0";
-        ctx.globalAlpha = flag.dropped ? 0.7 : 1;
+        ctx.fillStyle = "#e53935";
+        ctx.globalAlpha = flags.red.dropped ? 0.7 : 1;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Blue flag (right base)
+      if (flags?.blue && !flags.blue.carriedBy) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(flags.blue.x, flags.blue.y);
+        ctx.lineTo(flags.blue.x, flags.blue.y - 32);
+        ctx.strokeStyle = "#888";
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(flags.blue.x, flags.blue.y - 32);
+        ctx.lineTo(flags.blue.x + 22, flags.blue.y - 24);
+        ctx.lineTo(flags.blue.x, flags.blue.y - 16);
+        ctx.closePath();
+        ctx.fillStyle = "#1976d2";
+        ctx.globalAlpha = flags.blue.dropped ? 0.7 : 1;
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.strokeStyle = "#333";
@@ -555,25 +578,28 @@ export function GameCanvas() {
       // Draw all players (including local) as top-down people with snow hats
       for (const p of players as Player[]) {
         ctx.save();
-        // Draw carried flag if any (purple)
-        if (p.carryingFlag && flag && flag.carriedBy === p.id) {
-          ctx.beginPath();
-          ctx.moveTo(p.x, p.y - PLAYER_RADIUS * 1.3);
-          ctx.lineTo(p.x, p.y - PLAYER_RADIUS * 1.7);
-          ctx.strokeStyle = "#888";
-          ctx.lineWidth = 4;
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(p.x, p.y - PLAYER_RADIUS * 1.7);
-          ctx.lineTo(p.x + 18, p.y - PLAYER_RADIUS * 1.55);
-          ctx.lineTo(p.x, p.y - PLAYER_RADIUS * 1.4);
-          ctx.closePath();
-          ctx.fillStyle = "#a020f0";
-          ctx.globalAlpha = 1;
-          ctx.fill();
-          ctx.strokeStyle = "#333";
-          ctx.lineWidth = 2;
-          ctx.stroke();
+        // Draw carried flag if any (in flag's team color)
+        if (p.carryingFlag && flags) {
+          const carriedFlag = flags[p.carryingFlag];
+          if (carriedFlag && carriedFlag.carriedBy === p.id) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y - PLAYER_RADIUS * 1.3);
+            ctx.lineTo(p.x, p.y - PLAYER_RADIUS * 1.7);
+            ctx.strokeStyle = "#888";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y - PLAYER_RADIUS * 1.7);
+            ctx.lineTo(p.x + 18, p.y - PLAYER_RADIUS * 1.55);
+            ctx.lineTo(p.x, p.y - PLAYER_RADIUS * 1.4);
+            ctx.closePath();
+            ctx.fillStyle = p.carryingFlag === "red" ? "#e53935" : "#1976d2";
+            ctx.globalAlpha = 1;
+            ctx.fill();
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
         }
         // ...existing player rendering code...
         // Shadow
