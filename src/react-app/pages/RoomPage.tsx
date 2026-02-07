@@ -22,74 +22,80 @@ type LobbyState = {
 
 export function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>();
-  const [phase, setPhase] = useState<RoomPhase>("lobby");
   const [lobbyState, setLobbyState] = useState<LobbyState | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [connected, setConnected] = useState(false);
   const [clientId, setClientId] = useState<string>("");
   const wsRef = useRef<WebSocket | null>(null);
 
-  useEffect(() => {
-    if (!roomId) return;
+  // Get phase from lobbyState to avoid duplication
+  const phase = lobbyState?.phase || "lobby";
 
-    // Get or create client ID
+  // Separate effect for client ID to avoid recreating WebSocket
+  useEffect(() => {
     let id = localStorage.getItem("clientId");
     if (!id) {
       id = crypto.randomUUID();
       localStorage.setItem("clientId", id);
     }
     setClientId(id);
+  }, []);
 
-    // Prevent duplicate connections in StrictMode
-    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-      console.log("WebSocket already exists, skipping connection");
-      return;
-    }
+  // WebSocket effect
+  useEffect(() => {
+    if (!roomId || !clientId) return;
 
-    // Connect to WebSocket
+    console.log("Setting up WebSocket for room:", roomId, "client:", clientId);
+
     const host = window.location.host;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${host}/api/join?room=${roomId}&clientId=${id}`;
+    const wsUrl = `${protocol}//${host}/api/join?room=${roomId}&clientId=${clientId}`;
 
-    console.log("Creating WebSocket connection to:", wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.addEventListener("open", () => {
-      console.log("Connected to room:", roomId);
+    const handleOpen = () => {
+      console.log("WebSocket opened");
       setConnected(true);
-    });
+    };
 
-    ws.addEventListener("message", (e) => {
+    const handleMessage = (e: MessageEvent) => {
       const msg = JSON.parse(e.data);
-      console.log("Received message:", msg.type, msg);
+      console.log("Received:", msg.type, "phase:", msg.phase || "n/a");
 
       if (msg.type === "lobby_state") {
-        console.log("Setting lobby state:", msg);
         setLobbyState(msg);
-        setPhase(msg.phase);
-        console.log("Phase set to:", msg.phase);
       } else if (msg.type === "state") {
         setGameState(msg.state);
       }
-    });
+    };
 
-    ws.addEventListener("close", (e) => {
-      console.log("Disconnected from room - code:", e.code, "reason:", e.reason);
+    const handleClose = (e: CloseEvent) => {
+      console.log("WebSocket closed:", e.code, e.reason);
       setConnected(false);
-    });
+      wsRef.current = null;
+    };
 
-    ws.addEventListener("error", (err) => {
+    const handleError = (err: Event) => {
       console.error("WebSocket error:", err);
-      setConnected(false);
-    });
+    };
+
+    ws.addEventListener("open", handleOpen);
+    ws.addEventListener("message", handleMessage);
+    ws.addEventListener("close", handleClose);
+    ws.addEventListener("error", handleError);
 
     return () => {
-      // Don't close the WebSocket in cleanup to avoid StrictMode issues
-      // The WebSocket will be reused on remount
-      console.log("useEffect cleanup called, keeping WebSocket open");
+      console.log("Cleaning up WebSocket");
+      ws.removeEventListener("open", handleOpen);
+      ws.removeEventListener("message", handleMessage);
+      ws.removeEventListener("close", handleClose);
+      ws.removeEventListener("error", handleError);
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
     };
-  }, [roomId]);
+  }, [roomId, clientId]);
 
   const copyRoomLink = () => {
     const url = window.location.href;
