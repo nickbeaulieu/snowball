@@ -1,6 +1,5 @@
 - preview of map, or minimap
 - snowballs need to look more like snowballs
-- snowballs should go a little bit faster
 - zone is a safe zone
 - thin ice can fall through and you go back home
 - lobby mechanism, team decider
