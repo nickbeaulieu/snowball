@@ -31,6 +31,7 @@ type Snowball = {
 
 export class Room extends DurableObject<Env> {
   players: Map<string, Player> = new Map();
+  disconnectedPlayers: Map<string, { player: Player; disconnectTime: number }> = new Map();
   sockets: Map<WebSocket, string> = new Map();
   tickInterval?: number;
 
@@ -58,6 +59,7 @@ export class Room extends DurableObject<Env> {
   };
   readyStates: Map<string, PlayerReadyState> = new Map();
   hostId?: string;
+  originalHostId?: string; // Track first-ever host for priority reconnection
   gameStartTime?: number;
   winner?: Team;
 
@@ -131,50 +133,103 @@ export class Room extends DurableObject<Env> {
 
     this.sockets.set(ws, playerId);
 
-    // Set host to first player
+    // Send immediate lobby state to connecting client to prevent race condition
+    const timeRemaining = this.phase === "playing" && this.gameStartTime && this.config.timeLimit > 0
+      ? Math.max(0, this.config.timeLimit - (Date.now() - this.gameStartTime) / 1000)
+      : undefined;
+
+    const immediateState = {
+      type: "lobby_state" as const,
+      phase: this.phase,
+      config: this.config,
+      readyStates: Array.from(this.readyStates.values()),
+      hostId: this.hostId || "",
+      timeRemaining,
+      winner: this.winner,
+      mapData: this.currentMap,
+    };
+
+    try {
+      ws.send(JSON.stringify(immediateState));
+    } catch (err) {
+      console.error("Failed to send initial lobby state:", err);
+    }
+
+    // Set host to first player, and remember original host
     if (!this.hostId) {
+      this.hostId = playerId;
+      this.originalHostId = playerId; // Remember first host
+    } else if (this.originalHostId === playerId) {
+      // Original host reconnecting - restore their host status
       this.hostId = playerId;
     }
 
     if (!this.players.has(playerId)) {
-      // Assign team: balance by count if auto-balance, or default to red if manual
-      let team: Team = "red";
-      if (this.phase === "playing") {
-        const redCount = Array.from(this.players.values()).filter(
-          (p) => p.team === "red",
-        ).length;
-        const blueCount = Array.from(this.players.values()).filter(
-          (p) => p.team === "blue",
-        ).length;
-        team = redCount <= blueCount ? "red" : "blue";
-      }
+      // Check if player recently disconnected
+      const disconnectedData = this.disconnectedPlayers.get(playerId);
+      const RECONNECT_GRACE_PERIOD = 30000; // 30 seconds
 
-      const spawnPos = this.getRandomSpawnPosition(this.currentMap.teams[team].spawnZone);
+      if (disconnectedData && (Date.now() - disconnectedData.disconnectTime) < RECONNECT_GRACE_PERIOD) {
+        // Restore disconnected player with preserved state
+        const restoredPlayer = {
+          ...disconnectedData.player,
+          lastSeen: Date.now(),
+          // Clear any temporary states that shouldn't persist
+          hit: false,
+          carryingFlag: undefined, // Flag already returned in onDisconnect
+        };
+        this.players.set(playerId, restoredPlayer);
+        this.disconnectedPlayers.delete(playerId);
 
-      this.players.set(playerId, {
-        id: playerId,
-        x: spawnPos.x,
-        y: spawnPos.y,
-        vx: 0,
-        vy: 0,
-        input: { up: false, down: false, left: false, right: false },
-        lastProcessedInput: 0,
-        lastSeen: Date.now(),
-        lastThrowTime: 0,
-        nickname: undefined,
-        hit: false,
-        hitTime: 0,
-        team,
-      });
+        // Restore ready state if in lobby
+        if (this.phase === "lobby" && !this.readyStates.has(playerId)) {
+          this.readyStates.set(playerId, {
+            playerId,
+            isReady: false,
+            selectedTeam: restoredPlayer.team,
+            nickname: restoredPlayer.nickname,
+          });
+        }
+      } else {
+        // New player or grace period expired - create fresh player
+        let team: Team = "red";
+        if (this.phase === "playing") {
+          const redCount = Array.from(this.players.values()).filter(
+            (p) => p.team === "red",
+          ).length;
+          const blueCount = Array.from(this.players.values()).filter(
+            (p) => p.team === "blue",
+          ).length;
+          team = redCount <= blueCount ? "red" : "blue";
+        }
 
-      // Initialize ready state for new player
-      if (!this.readyStates.has(playerId)) {
-        this.readyStates.set(playerId, {
-          playerId,
-          isReady: false,
-          selectedTeam: team,
+        const spawnPos = this.getRandomSpawnPosition(this.currentMap.teams[team].spawnZone);
+
+        this.players.set(playerId, {
+          id: playerId,
+          x: spawnPos.x,
+          y: spawnPos.y,
+          vx: 0,
+          vy: 0,
+          input: { up: false, down: false, left: false, right: false },
+          lastProcessedInput: 0,
+          lastSeen: Date.now(),
+          lastThrowTime: 0,
           nickname: undefined,
+          hit: false,
+          hitTime: 0,
+          team,
         });
+
+        // Initialize ready state for new player
+        if (!this.readyStates.has(playerId)) {
+          this.readyStates.set(playerId, {
+            playerId,
+            isReady: false,
+            selectedTeam: team,
+            nickname: undefined,
+          });
+        }
       }
     } else {
       // Update lastSeen for reconnecting player
@@ -207,9 +262,22 @@ export class Room extends DurableObject<Env> {
       this.flags[flagTeam].dropped = false;
       this.flags[flagTeam].x = this.currentMap.teams[flagTeam].flagBase.x;
       this.flags[flagTeam].y = this.currentMap.teams[flagTeam].flagBase.y;
+      // Clear flag from player but keep player data
+      if (player) {
+        player.carryingFlag = undefined;
+      }
     }
 
     this.sockets.delete(ws);
+
+    // Instead of deleting immediately, move to disconnected state
+    if (player) {
+      this.disconnectedPlayers.set(playerId, {
+        player: { ...player }, // Clone player state
+        disconnectTime: Date.now()
+      });
+    }
+
     this.players.delete(playerId);
     this.readyStates.delete(playerId);
 
@@ -426,6 +494,14 @@ export class Room extends DurableObject<Env> {
               break;
             }
           }
+        }
+      }
+
+      // Clean up expired disconnected player states
+      const CLEANUP_AFTER = 60000; // Remove after 1 minute
+      for (const [id, data] of this.disconnectedPlayers) {
+        if (now - data.disconnectTime > CLEANUP_AFTER) {
+          this.disconnectedPlayers.delete(id);
         }
       }
 

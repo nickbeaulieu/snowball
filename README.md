@@ -3,9 +3,6 @@
 
 - Mercy rule
 - Speed settings
-- Choose a map
-    - design some maps
-    - not square maps
 
 - Wall collisions are inconsistent while running towards the wall
 
