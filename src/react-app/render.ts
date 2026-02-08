@@ -318,14 +318,84 @@ export function drawPlayerNickname(
 export function drawSnowballs(
   ctx: CanvasRenderingContext2D,
   snowballs: Snowball[],
-  snowballRadius: number,
-  localPlayerId: string
+  snowballRadius: number
 ): void {
   for (const s of snowballs) {
+    ctx.save();
+
+    // All snowballs use same snow colors
+    const baseColor = '#ffffff';  // pure white
+    const midColor = '#e3f2fd';   // light blue tint
+    const darkColor = '#b3e5fc';  // darker blue for edge
+
+    // Draw motion trail (3 fading circles behind the snowball)
+    const speed = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+    if (speed > 10) {  // Only show trail if moving
+      const normalizedVx = s.vx / speed;
+      const normalizedVy = s.vy / speed;
+
+      for (let i = 1; i <= 3; i++) {
+        const trailX = s.x - normalizedVx * i * 3.5;
+        const trailY = s.y - normalizedVy * i * 3.5;
+        const trailOpacity = 0.3 - (i * 0.08);
+        const trailRadius = snowballRadius * (1 - i * 0.15);
+
+        ctx.globalAlpha = trailOpacity;
+        ctx.beginPath();
+        ctx.arc(trailX, trailY, trailRadius, 0, Math.PI * 2);
+        ctx.fillStyle = baseColor;
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
+    // Add subtle shadow beneath snowball
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+
+    // Draw snowball with radial gradient for 3D sphere effect
+    const gradient = ctx.createRadialGradient(
+      s.x - snowballRadius * 0.35,  // Highlight offset to top-left
+      s.y - snowballRadius * 0.35,
+      snowballRadius * 0.2,
+      s.x,
+      s.y,
+      snowballRadius
+    );
+    gradient.addColorStop(0, '#ffffff');    // Bright white highlight
+    gradient.addColorStop(0.4, midColor);   // Transition to base color
+    gradient.addColorStop(1, darkColor);    // Darker edge shadow
+
     ctx.beginPath();
     ctx.arc(s.x, s.y, snowballRadius, 0, Math.PI * 2);
-    ctx.fillStyle = s.owner === localPlayerId ? "#ff9800" : "#aaa"; // orange for your snowballs
+    ctx.fillStyle = gradient;
     ctx.fill();
+
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Add sparkle/shine effect (small white dots for icy appearance)
+    const sparkles = [
+      { angle: 0.5, distance: 0.4, size: 1.5 },
+      { angle: 2.1, distance: 0.6, size: 1 },
+      { angle: 3.8, distance: 0.5, size: 1.2 },
+    ];
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    sparkles.forEach(sparkle => {
+      const sx = s.x + Math.cos(sparkle.angle) * snowballRadius * sparkle.distance;
+      const sy = s.y + Math.sin(sparkle.angle) * snowballRadius * sparkle.distance;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sparkle.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.restore();
   }
 }
 

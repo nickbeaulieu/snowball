@@ -3,7 +3,7 @@ export const WORLD_HEIGHT = 1000;
 export const GRID_SIZE = 40; // px - grid cell size for background and wall alignment
 export const WALL_THICKNESS = 40; // px - standard wall thickness
 export const SNOWBALL_SPEED = 500; // px/s
-export const SNOWBALL_RADIUS = 4;
+export const SNOWBALL_RADIUS = 7;
 export const SNOWBALL_LIFETIME = 1.2; // seconds
 // Shared movement/game constants for both client and server
 

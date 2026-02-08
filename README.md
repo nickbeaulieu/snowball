@@ -1,5 +1,4 @@
 - Preview of map, or minimap
-- Snowballs need to look more like snowballs
 - Copy link button should show only during lobby
 - As a non-host I sometimes get stuck in the "connecting to room" screen after the game starts
 
@@ -11,9 +10,6 @@
 - Choose a map
     - design some maps
     - not square maps
-
-- Clean up team selection UI
-    - no need for "allow manual selection" checkbox
 
 - Wall collisions are inconsistent while running towards the wall
 

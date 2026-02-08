@@ -590,7 +590,7 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
       }
 
       // Draw snowballs
-      drawSnowballs(ctx, snowballs as Snowball[], SNOWBALL_RADIUS, playerIdRef.current);
+      drawSnowballs(ctx, snowballs as Snowball[], SNOWBALL_RADIUS);
 
       // Draw score display (in screen space)
       ctx.restore();
