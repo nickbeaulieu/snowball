@@ -166,24 +166,25 @@ export function drawCarriedFlag(
   playerRadius: number,
   team: Team
 ): void {
-  // Draw pole
+  // Position flag on right shoulder (full size, not scaled)
+  const flagX = playerX + 12; // Offset to right shoulder
+  const flagBaseY = playerY - playerRadius / 2;
+
+  // Draw pole (same size as regular flag: 32px)
   ctx.beginPath();
-  ctx.moveTo(playerX, playerY - playerRadius * 1.3);
-  ctx.lineTo(playerX, playerY - playerRadius * 1.7);
+  ctx.moveTo(flagX, flagBaseY);
+  ctx.lineTo(flagX, flagBaseY - 32);
   ctx.strokeStyle = "#888";
   ctx.lineWidth = 4;
   ctx.stroke();
 
-  // Draw flag fabric with wave pattern (scaled to player)
+  // Draw flag fabric with wave pattern (same size as regular flag)
   ctx.beginPath();
-  const top = playerY - playerRadius * 1.7;
-  const bottom = playerY - playerRadius * 1.4;
-  const mid = (top + bottom) / 2;
-  ctx.moveTo(playerX, top);
-  // Wave pattern on right edge
-  ctx.quadraticCurveTo(playerX + 20, top + 2, playerX + 18, mid - 2);
-  ctx.quadraticCurveTo(playerX + 16, mid, playerX + 18, mid + 2);
-  ctx.quadraticCurveTo(playerX + 20, bottom - 2, playerX, bottom);
+  ctx.moveTo(flagX, flagBaseY - 32);
+  // Wave pattern on right edge (same as regular flag)
+  ctx.quadraticCurveTo(flagX + 24, flagBaseY - 30, flagX + 22, flagBaseY - 26);
+  ctx.quadraticCurveTo(flagX + 20, flagBaseY - 24, flagX + 22, flagBaseY - 22);
+  ctx.quadraticCurveTo(flagX + 24, flagBaseY - 18, flagX, flagBaseY - 16);
   ctx.closePath();
   ctx.fillStyle = team === "red" ? "#e53935" : "#1976d2";
   ctx.globalAlpha = 1;
