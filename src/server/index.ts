@@ -18,8 +18,6 @@ app.get("/api/join", async (c) => {
   const id = c.env.ROOM.idFromName(room);
   const stub = c.env.ROOM.get(id);
 
-  console.log("Joining room:", room);
-
   // Let the DO handle the WebSocket upgrade
   return stub.fetch(c.req.raw);
 });

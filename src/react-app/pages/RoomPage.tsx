@@ -45,8 +45,6 @@ export function RoomPage() {
   useEffect(() => {
     if (!roomId || !clientId) return;
 
-    console.log("Setting up WebSocket for room:", roomId, "client:", clientId);
-
     const host = window.location.host;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${host}/api/join?room=${roomId}&clientId=${clientId}`;
@@ -55,13 +53,11 @@ export function RoomPage() {
     wsRef.current = ws;
 
     const handleOpen = () => {
-      console.log("WebSocket opened");
       setConnected(true);
     };
 
     const handleMessage = (e: MessageEvent) => {
       const msg = JSON.parse(e.data);
-      console.log("Received:", msg.type, "phase:", msg.phase || "n/a");
 
       if (msg.type === "lobby_state") {
         setLobbyState(msg);
@@ -71,7 +67,6 @@ export function RoomPage() {
     };
 
     const handleClose = (e: CloseEvent) => {
-      console.log("WebSocket closed:", e.code, e.reason);
       setConnected(false);
       wsRef.current = null;
     };
@@ -86,7 +81,6 @@ export function RoomPage() {
     ws.addEventListener("error", handleError);
 
     return () => {
-      console.log("Cleaning up WebSocket");
       ws.removeEventListener("open", handleOpen);
       ws.removeEventListener("message", handleMessage);
       ws.removeEventListener("close", handleClose);
@@ -131,8 +125,6 @@ export function RoomPage() {
       </div>
     );
   }
-
-  console.log("Render - phase:", phase, "lobbyState:", lobbyState, "wsRef.current:", wsRef.current, "clientId:", clientId);
 
   return (
     <div style={{ minHeight: "100vh" }}>
@@ -205,7 +197,6 @@ export function RoomPage() {
       {phase === "playing" && wsRef.current && lobbyState && (
         <GameCanvas
           websocket={wsRef.current}
-          config={lobbyState.config}
           clientId={clientId}
         />
       )}

@@ -15,7 +15,7 @@ import {
   GRID_SIZE,
 } from "../constants";
 
-import type { Player, ServerSnapshot, Snowball, RoomConfig } from "../types";
+import type { Player, ServerSnapshot, Snowball } from "../types";
 
 import {
   drawGridBackground,
@@ -41,11 +41,10 @@ type InputMsg = {
 
 type GameCanvasProps = {
   websocket: WebSocket;
-  config: RoomConfig;
   clientId: string;
 };
 
-export function GameCanvas({ websocket, config, clientId }: GameCanvasProps) {
+export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Setup canvas for Retina/high-DPI displays

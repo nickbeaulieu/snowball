@@ -666,10 +666,6 @@ export class Room extends DurableObject<Env> {
             snowball.x = -9999; // mark for removal
             player.hit = true;
             player.hitTime = now;
-            // Debug: log hit
-            console.log(
-              `[HIT] Player ${player.id} was hit by snowball from ${snowball.ownerId} at (${player.x.toFixed(1)},${player.y.toFixed(1)})`,
-            );
           }
         }
       }
