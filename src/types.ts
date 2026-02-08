@@ -53,7 +53,6 @@ export type RoomPhase = "lobby" | "playing" | "finished";
 export type RoomConfig = {
   scoreLimit: number; // 0 = unlimited, otherwise first to X points wins
   timeLimit: number; // 0 = unlimited, otherwise game duration in seconds
-  allowManualTeams: boolean; // true = players choose teams, false = auto-balance
 };
 
 // Player ready state for lobby

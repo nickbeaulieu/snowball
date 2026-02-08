@@ -5,7 +5,6 @@ type LobbyProps = {
     config: {
       scoreLimit: number;
       timeLimit: number;
-      allowManualTeams: boolean;
     };
     readyStates: Array<{
       playerId: string;
@@ -28,7 +27,7 @@ export function Lobby({ lobbyState, websocket, clientId }: LobbyProps) {
     .filter((rs) => rs.playerId !== lobbyState.hostId)
     .every((rs) => rs.isReady);
 
-  const sendMessage = (msg: any) => {
+  const sendMessage = (msg: unknown) => {
     if (websocket.readyState === WebSocket.OPEN) {
       websocket.send(JSON.stringify(msg));
     }
@@ -42,7 +41,7 @@ export function Lobby({ lobbyState, websocket, clientId }: LobbyProps) {
     sendMessage({ type: "select_team", team });
   };
 
-  const handleUpdateConfig = (config: any) => {
+  const handleUpdateConfig = (config: unknown) => {
     sendMessage({ type: "update_config", config });
   };
 
@@ -187,46 +186,15 @@ export function Lobby({ lobbyState, websocket, clientId }: LobbyProps) {
                 }}
               >
                 <option value="0">Unlimited</option>
+                <option value="180">3 minutes</option>
                 <option value="300">5 minutes</option>
-                <option value="600">10 minutes</option>
-                <option value="900">15 minutes</option>
+                <option value="420">7 minutes</option>
               </select>
-            </div>
-
-            <div>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  cursor: "pointer",
-                  fontSize: "0.875rem",
-                  fontWeight: "600",
-                  color: "#475569",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={lobbyState.config.allowManualTeams}
-                  onChange={(e) =>
-                    handleUpdateConfig({
-                      allowManualTeams: e.target.checked,
-                    })
-                  }
-                  style={{
-                    marginRight: "0.5rem",
-                    width: "1.125rem",
-                    height: "1.125rem",
-                    cursor: "pointer",
-                  }}
-                />
-                Allow manual team selection
-              </label>
             </div>
           </div>
         )}
 
         {/* Team Selection */}
-        {lobbyState.config.allowManualTeams && (
           <div style={{ marginBottom: "2rem" }}>
             <h2
               style={{
@@ -304,7 +272,6 @@ export function Lobby({ lobbyState, websocket, clientId }: LobbyProps) {
               </button>
             </div>
           </div>
-        )}
 
         {/* Player List */}
         <div style={{ marginBottom: "2rem" }}>

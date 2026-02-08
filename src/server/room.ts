@@ -59,9 +59,8 @@ export class Room extends DurableObject<Env> {
   // Lobby and game phase management
   phase: RoomPhase = "lobby";
   config: RoomConfig = {
-    scoreLimit: 5,
-    timeLimit: 600, // 10 minutes in seconds
-    allowManualTeams: true,
+    scoreLimit: 0,
+    timeLimit: 300, // 5 minutes in seconds
   };
   readyStates: Map<string, PlayerReadyState> = new Map();
   hostId?: string;
@@ -115,7 +114,7 @@ export class Room extends DurableObject<Env> {
     if (!this.players.has(playerId)) {
       // Assign team: balance by count if auto-balance, or default to red if manual
       let team: Team = "red";
-      if (!this.config.allowManualTeams || this.phase === "playing") {
+      if (this.phase === "playing") {
         const redCount = Array.from(this.players.values()).filter(
           (p) => p.team === "red",
         ).length;
@@ -281,7 +280,7 @@ export class Room extends DurableObject<Env> {
       }
     } else if (msg.type === "select_team") {
       // Change team selection in lobby (only if manual teams enabled)
-      if (this.phase !== "lobby" || !this.config.allowManualTeams) return;
+      if (this.phase !== "lobby") return;
       const readyState = this.readyStates.get(playerId);
       if (readyState && player) {
         readyState.selectedTeam = msg.team;
@@ -298,9 +297,6 @@ export class Room extends DurableObject<Env> {
       }
       if (msg.config.timeLimit !== undefined) {
         this.config.timeLimit = Math.max(0, msg.config.timeLimit);
-      }
-      if (msg.config.allowManualTeams !== undefined) {
-        this.config.allowManualTeams = msg.config.allowManualTeams;
       }
       this.broadcastLobbyState();
     } else if (msg.type === "start_game") {
