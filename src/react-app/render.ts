@@ -1,4 +1,4 @@
-import type { Player, Snowball, FlagState, Team } from "../types";
+import type { Player, Snowball, FlagState, Team, Particle } from "../types";
 
 export function drawGridBackground(
   ctx: CanvasRenderingContext2D,
@@ -6,10 +6,20 @@ export function drawGridBackground(
   worldHeight: number,
   gridSize: number
 ): void {
-  // Draw off-white grid background
-  ctx.fillStyle = "#f9f9f6"; // off-white
+  // Draw subtle radial gradient background (lighter center, slightly darker edges)
+  const centerX = worldWidth / 2;
+  const centerY = worldHeight / 2;
+  const radius = Math.sqrt(worldWidth * worldWidth + worldHeight * worldHeight) / 2;
+
+  const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+  gradient.addColorStop(0, '#ffffff');    // Bright white center
+  gradient.addColorStop(0.5, '#f9f9f6');  // Off-white mid
+  gradient.addColorStop(1, '#f0f0ed');    // Slightly darker edges
+
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, worldWidth, worldHeight);
 
+  // Draw grid with reduced opacity
   ctx.beginPath();
   for (let x = 0; x <= worldWidth; x += gridSize) {
     ctx.moveTo(x, 0);
@@ -21,7 +31,7 @@ export function drawGridBackground(
   }
   ctx.strokeStyle = "#ececec"; // subtle grid lines
   ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.7;
+  ctx.globalAlpha = 0.5; // Reduced from 0.7 for more subtle grid
   ctx.stroke();
   ctx.globalAlpha = 1;
 }
@@ -51,44 +61,108 @@ export function drawWalls(
   ctx: CanvasRenderingContext2D,
   walls: Array<{ x: number; y: number; width: number; height: number }>
 ): void {
-  // Draw walls as snow mounds (rounded rectangles)
+  const threshold = 2; // pixels - walls within this distance are considered connected
+
+  // Helper to check if two walls are adjacent on a specific edge
+  const isAdjacent = (w1: typeof walls[0], w2: typeof walls[0], edge: 'top' | 'bottom' | 'left' | 'right'): boolean => {
+    if (edge === 'top') {
+      return Math.abs(w2.y + w2.height - w1.y) < threshold &&
+             w2.x < w1.x + w1.width && w2.x + w2.width > w1.x;
+    } else if (edge === 'bottom') {
+      return Math.abs(w1.y + w1.height - w2.y) < threshold &&
+             w2.x < w1.x + w1.width && w2.x + w2.width > w1.x;
+    } else if (edge === 'left') {
+      return Math.abs(w2.x + w2.width - w1.x) < threshold &&
+             w2.y < w1.y + w1.height && w2.y + w2.height > w1.y;
+    } else { // right
+      return Math.abs(w1.x + w1.width - w2.x) < threshold &&
+             w2.y < w1.y + w1.height && w2.y + w2.height > w1.y;
+    }
+  };
+
+  // Draw walls as snow mounds with intelligent corner rounding
   for (const wall of walls) {
     ctx.save();
-    ctx.beginPath();
+
+    // Check adjacency for each edge
+    const hasTop = walls.some(w => w !== wall && isAdjacent(wall, w, 'top'));
+    const hasBottom = walls.some(w => w !== wall && isAdjacent(wall, w, 'bottom'));
+    const hasLeft = walls.some(w => w !== wall && isAdjacent(wall, w, 'left'));
+    const hasRight = walls.some(w => w !== wall && isAdjacent(wall, w, 'right'));
+
     const r = 16; // corner radius for snow mounds
-    ctx.moveTo(wall.x + r, wall.y);
-    ctx.lineTo(wall.x + wall.width - r, wall.y);
-    ctx.quadraticCurveTo(
-      wall.x + wall.width,
-      wall.y,
-      wall.x + wall.width,
-      wall.y + r,
-    );
-    ctx.lineTo(wall.x + wall.width, wall.y + wall.height - r);
-    ctx.quadraticCurveTo(
-      wall.x + wall.width,
-      wall.y + wall.height,
-      wall.x + wall.width - r,
-      wall.y + wall.height,
-    );
-    ctx.lineTo(wall.x + r, wall.y + wall.height);
-    ctx.quadraticCurveTo(
-      wall.x,
-      wall.y + wall.height,
-      wall.x,
-      wall.y + wall.height - r,
-    );
-    ctx.lineTo(wall.x, wall.y + r);
-    ctx.quadraticCurveTo(wall.x, wall.y, wall.x + r, wall.y);
+
+    // Build path with conditional corner rounding
+    ctx.beginPath();
+
+    // Top edge
+    ctx.moveTo(wall.x + (hasTop || hasLeft ? 0 : r), wall.y);
+    ctx.lineTo(wall.x + wall.width - (hasTop || hasRight ? 0 : r), wall.y);
+
+    // Top-right corner
+    if (!hasTop && !hasRight) {
+      ctx.quadraticCurveTo(wall.x + wall.width, wall.y, wall.x + wall.width, wall.y + r);
+    }
+
+    // Right edge
+    ctx.lineTo(wall.x + wall.width, wall.y + wall.height - (hasBottom || hasRight ? 0 : r));
+
+    // Bottom-right corner
+    if (!hasBottom && !hasRight) {
+      ctx.quadraticCurveTo(wall.x + wall.width, wall.y + wall.height, wall.x + wall.width - r, wall.y + wall.height);
+    }
+
+    // Bottom edge
+    ctx.lineTo(wall.x + (hasBottom || hasLeft ? 0 : r), wall.y + wall.height);
+
+    // Bottom-left corner
+    if (!hasBottom && !hasLeft) {
+      ctx.quadraticCurveTo(wall.x, wall.y + wall.height, wall.x, wall.y + wall.height - r);
+    }
+
+    // Left edge
+    ctx.lineTo(wall.x, wall.y + (hasTop || hasLeft ? 0 : r));
+
+    // Top-left corner
+    if (!hasTop && !hasLeft) {
+      ctx.quadraticCurveTo(wall.x, wall.y, wall.x + r, wall.y);
+    }
+
     ctx.closePath();
-    ctx.fillStyle = "#e0f7fa";
-    ctx.shadowColor = "#b3e5fc";
-    ctx.shadowBlur = 12;
+
+    // Add vertical gradient for depth (top-down lighting)
+    const gradient = ctx.createLinearGradient(0, wall.y, 0, wall.y + wall.height);
+    gradient.addColorStop(0, '#f0f9ff');   // Lighter at top (snow accumulation)
+    gradient.addColorStop(0.4, '#d4ebf7'); // Mid tone
+    gradient.addColorStop(1, '#b8dff0');   // Darker at bottom
+    ctx.fillStyle = gradient;
+
+    // Shadow for depth
+    ctx.shadowColor = 'rgba(100, 150, 200, 0.3)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
     ctx.fill();
+
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "#90caf9";
+    ctx.shadowOffsetY = 0;
+
+    // Stroke outline
+    ctx.strokeStyle = '#90caf9';
     ctx.lineWidth = 2;
     ctx.stroke();
+
+    // Add snow accumulation highlight on top edge (if exposed)
+    if (!hasTop) {
+      ctx.beginPath();
+      ctx.moveTo(wall.x + (hasLeft ? 0 : r), wall.y + 1);
+      ctx.lineTo(wall.x + wall.width - (hasRight ? 0 : r), wall.y + 1);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }
@@ -110,7 +184,13 @@ export function drawFlag(
   ctx.lineWidth = 4;
   ctx.stroke();
 
-  // Draw flag fabric with wave pattern
+  // Draw pole tip sparkle
+  ctx.beginPath();
+  ctx.arc(x, y - 32, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fill();
+
+  // Draw flag fabric with wave pattern and gradient
   ctx.beginPath();
   ctx.moveTo(x, y - 32);
   // Wave pattern on right edge
@@ -118,7 +198,15 @@ export function drawFlag(
   ctx.quadraticCurveTo(x + 20, y - 24, x + 22, y - 22);
   ctx.quadraticCurveTo(x + 24, y - 18, x, y - 16);
   ctx.closePath();
-  ctx.fillStyle = team === "red" ? "#e53935" : "#1976d2";
+
+  // Add vertical gradient (lighter at top, darker at bottom)
+  const baseColor = team === "red" ? "#e53935" : "#1976d2";
+  const darkColor = team === "red" ? "#c62828" : "#0d47a1";
+  const gradient = ctx.createLinearGradient(x, y - 32, x, y - 16);
+  gradient.addColorStop(0, baseColor);
+  gradient.addColorStop(1, darkColor);
+
+  ctx.fillStyle = gradient;
   ctx.globalAlpha = dropped ? 0.7 : 1;
   ctx.fill();
   ctx.globalAlpha = 1;
@@ -212,6 +300,42 @@ export function drawPlayer(
 ): void {
   ctx.save();
 
+  // Calculate movement for animations
+  const speed = Math.sqrt((player.vx ?? 0) ** 2 + (player.vy ?? 0) ** 2);
+  const moveAngle = Math.atan2(player.vy ?? 0, player.vx ?? 0);
+  const isMoving = speed > 50; // Threshold for showing movement effects
+
+  // Draw movement trail (like snowballs) if moving fast
+  if (speed > 150) {
+    const normalizedVx = (player.vx ?? 0) / speed;
+    const normalizedVy = (player.vy ?? 0) / speed;
+
+    for (let i = 1; i <= 2; i++) {
+      const trailX = player.x - normalizedVx * i * 5;
+      const trailY = player.y - normalizedVy * i * 5;
+      const trailOpacity = 0.15 - (i * 0.05);
+
+      ctx.globalAlpha = trailOpacity;
+      ctx.beginPath();
+      ctx.arc(trailX, trailY, playerRadius * 0.8, 0, Math.PI * 2);
+      ctx.fillStyle = player.team === "red" ? "#e53935" : "#1976d2";
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1.0;
+  }
+
+  // Add glow for flag carriers
+  if (player.carryingFlag) {
+    ctx.save();
+    ctx.shadowColor = player.team === "red" ? "#e53935" : "#1976d2";
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, playerRadius * 1.1, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.01)'; // Nearly transparent
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Draw carried flag if any (in flag's team color)
   if (player.carryingFlag && flags) {
     const carriedFlag = flags[player.carryingFlag];
@@ -236,6 +360,14 @@ export function drawPlayer(
   ctx.fill();
   ctx.globalAlpha = 1;
 
+  // Apply body lean based on movement direction
+  if (isMoving) {
+    ctx.translate(player.x, player.y);
+    // Combine both horizontal and vertical movement for full directional lean
+    ctx.rotate((Math.sin(moveAngle) * 0.08 + Math.cos(moveAngle) * 0.08)); // Slight lean in movement direction
+    ctx.translate(-player.x, -player.y);
+  }
+
   // Body (jacket) - team color
   ctx.beginPath();
   ctx.arc(player.x, player.y, playerRadius * 0.95, 0, Math.PI * 2);
@@ -256,20 +388,25 @@ export function drawPlayer(
   ctx.stroke();
 
   // Head (face)
+  const headX = player.x;
+  const headY = player.y - playerRadius * 0.55;
+  const headRadius = playerRadius * 0.45;
+
   ctx.beginPath();
-  ctx.arc(
-    player.x,
-    player.y - playerRadius * 0.55,
-    playerRadius * 0.45,
-    0,
-    Math.PI * 2,
-  );
+  ctx.arc(headX, headY, headRadius, 0, Math.PI * 2);
   ctx.fillStyle = "#fffde7";
   ctx.fill();
   ctx.strokeStyle = "#bdbdbd";
   ctx.stroke();
 
-  // Snow hat (main part)
+  // Snow hat (main part) - tilts opposite to body lean (draw BEFORE eyes so eyes appear on top)
+  // Combine both horizontal (cos) and vertical (sin) movement for full directional tilt
+  const hatTilt = isMoving ? -(Math.sin(moveAngle) * 0.08 + Math.cos(moveAngle) * 0.08) : 0;
+  ctx.save();
+  ctx.translate(player.x, player.y - playerRadius * 0.85);
+  ctx.rotate(hatTilt);
+  ctx.translate(-player.x, -(player.y - playerRadius * 0.85));
+
   ctx.beginPath();
   ctx.arc(
     player.x,
@@ -297,7 +434,66 @@ export function drawPlayer(
   ctx.strokeStyle = "#b3e5fc";
   ctx.stroke();
 
-  ctx.restore();
+  ctx.restore(); // Restore from hat tilt
+
+  // Eyes - change expression based on state (draw AFTER hat so they appear on top)
+  const eyeOffsetX = headRadius * 0.35;
+  const eyeY = headY - headRadius * 0.1;
+
+  if (player.hit) {
+    // Stunned: X eyes
+    const drawX = (cx: number, cy: number, size: number) => {
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - size, cy - size);
+      ctx.lineTo(cx + size, cy + size);
+      ctx.moveTo(cx + size, cy - size);
+      ctx.lineTo(cx - size, cy + size);
+      ctx.stroke();
+    };
+    drawX(headX - eyeOffsetX, eyeY, 3);
+    drawX(headX + eyeOffsetX, eyeY, 3);
+  } else if (speed > 200) {
+    // Moving fast: squinted eyes (effort)
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(headX - eyeOffsetX - 3, eyeY);
+    ctx.lineTo(headX - eyeOffsetX + 3, eyeY);
+    ctx.moveTo(headX + eyeOffsetX - 3, eyeY);
+    ctx.lineTo(headX + eyeOffsetX + 3, eyeY);
+    ctx.stroke();
+  } else if (player.carryingFlag) {
+    // Carrying flag: determined eyes (filled circles, slightly larger)
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.arc(headX - eyeOffsetX, eyeY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headX + eyeOffsetX, eyeY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Normal: round eyes with highlights
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.arc(headX - eyeOffsetX, eyeY, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headX + eyeOffsetX, eyeY, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye highlights
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(headX - eyeOffsetX + 1, eyeY - 1, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headX + eyeOffsetX + 1, eyeY - 1, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore(); // Restore from body lean
 }
 
 export function drawPlayerNickname(
@@ -334,7 +530,6 @@ export function drawSnowballs(
     ctx.save();
 
     // All snowballs use same snow colors
-    const baseColor = '#ffffff';  // pure white
     const midColor = '#e3f2fd';   // light blue tint
     const darkColor = '#b3e5fc';  // darker blue for edge
 
@@ -347,13 +542,13 @@ export function drawSnowballs(
       for (let i = 1; i <= 3; i++) {
         const trailX = s.x - normalizedVx * i * 3.5;
         const trailY = s.y - normalizedVy * i * 3.5;
-        const trailOpacity = 0.3 - (i * 0.08);
+        const trailOpacity = 0.6 - (i * 0.15);  // Increased from 0.3 - (i * 0.08) for better visibility
         const trailRadius = snowballRadius * (1 - i * 0.15);
 
         ctx.globalAlpha = trailOpacity;
         ctx.beginPath();
         ctx.arc(trailX, trailY, trailRadius, 0, Math.PI * 2);
-        ctx.fillStyle = baseColor;
+        ctx.fillStyle = midColor;  // Use light blue tint instead of pure white for better visibility
         ctx.fill();
       }
       ctx.globalAlpha = 1.0;
@@ -442,10 +637,18 @@ export function drawScoreDisplay(
 
   ctx.textBaseline = "middle";
 
-  // Draw red score (left)
+  // Draw red score (left) with team-colored glow
   ctx.font = "bold 36px sans-serif";
   ctx.textAlign = "right";
-  // Draw outline first
+  // Draw glow first
+  ctx.shadowColor = "#e53935";
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = "#e53935";
+  ctx.fillText(`${redScore}`, leftScoreX, bottomY);
+  // Reset shadow
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  // Draw outline
   ctx.strokeStyle = "#000";
   ctx.lineWidth = 4;
   ctx.strokeText(`${redScore}`, leftScoreX, bottomY);
@@ -466,10 +669,18 @@ export function drawScoreDisplay(
     ctx.fillText(clockText, clockX, bottomY + 2);
   }
 
-  // Draw blue score (right)
+  // Draw blue score (right) with team-colored glow
   ctx.font = "bold 36px sans-serif";
   ctx.textAlign = "left";
-  // Draw outline first
+  // Draw glow first
+  ctx.shadowColor = "#1976d2";
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = "#1976d2";
+  ctx.fillText(`${blueScore}`, rightScoreX, bottomY);
+  // Reset shadow
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  // Draw outline
   ctx.strokeStyle = "#000";
   ctx.lineWidth = 4;
   ctx.strokeText(`${blueScore}`, rightScoreX, bottomY);
@@ -478,4 +689,116 @@ export function drawScoreDisplay(
   ctx.fillText(`${blueScore}`, rightScoreX, bottomY);
 
   ctx.restore();
+}
+
+// Particle system rendering
+export function drawParticles(
+  ctx: CanvasRenderingContext2D,
+  particles: Particle[]
+): void {
+  ctx.save();
+
+  for (const p of particles) {
+    const alpha = p.life; // life goes from 1 to 0
+    if (alpha <= 0) continue;
+
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1.0;
+  ctx.restore();
+}
+
+// Helper to create impact particles when snowball hits something
+export function createImpactParticles(
+  x: number,
+  y: number,
+  vx: number,
+  vy: number
+): Particle[] {
+  const particles: Particle[] = [];
+  const count = 10;
+  const now = Date.now();
+
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+    const speed = 100 + Math.random() * 100;
+
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed - vx * 0.3, // Deflect based on incoming velocity
+      vy: Math.sin(angle) * speed - vy * 0.3,
+      life: 1.0,
+      maxLife: 400, // 400ms lifetime
+      size: 2 + Math.random() * 2,
+      color: '#e3f2fd',
+      type: 'impact',
+      createdAt: now
+    });
+  }
+
+  return particles;
+}
+
+// Helper to create celebration particles when flag is captured
+export function createCelebrationParticles(
+  x: number,
+  y: number,
+  team: Team
+): Particle[] {
+  const particles: Particle[] = [];
+  const count = 30;
+  const now = Date.now();
+  const color = team === "red" ? "#e53935" : "#1976d2";
+
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 150 + Math.random() * 150;
+
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 200, // Upward bias
+      life: 1.0,
+      maxLife: 800, // 800ms lifetime
+      size: 3 + Math.random() * 3,
+      color,
+      type: 'celebration',
+      createdAt: now
+    });
+  }
+
+  return particles;
+}
+
+// Update particles (call this every frame)
+export function updateParticles(
+  particles: Particle[],
+  dt: number
+): Particle[] {
+  const now = Date.now();
+  const gravity = 600; // pixels per second squared
+
+  return particles
+    .map(p => {
+      const age = now - p.createdAt;
+      const newLife = 1 - (age / p.maxLife);
+
+      if (newLife <= 0) return null; // Mark for removal
+
+      return {
+        ...p,
+        x: p.x + p.vx * dt,
+        y: p.y + p.vy * dt,
+        vy: p.vy + gravity * dt, // Apply gravity
+        life: newLife
+      };
+    })
+    .filter((p): p is Particle => p !== null); // Remove dead particles
 }

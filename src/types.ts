@@ -49,6 +49,20 @@ export type Snowball = {
   owner: string;
 };
 
+// Particle for visual effects
+export type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number; // 0 to 1, decreases over time
+  maxLife: number; // starting life in ms
+  size: number;
+  color: string;
+  type: 'impact' | 'celebration' | 'trail';
+  createdAt: number; // timestamp
+};
+
 // Room phase management
 export type RoomPhase = "lobby" | "playing" | "finished";
 

@@ -1,5 +1,4 @@
 - Preview of map, or minimap
-- As a non-host I sometimes get stuck in the "connecting to room" screen after the game starts
 
 - Mercy rule
 - Speed settings
