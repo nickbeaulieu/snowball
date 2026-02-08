@@ -83,37 +83,6 @@ export function drawWalls(
   }
 }
 
-export function drawGoalZones(
-  ctx: CanvasRenderingContext2D,
-  worldWidth: number,
-  worldHeight: number,
-  gridSize: number
-): void {
-  // Draw goal zones (dotted border, grid-aligned, 2x8)
-  const goalWidth = gridSize * 2;
-  const goalHeight = gridSize * 8;
-
-  ctx.save();
-  ctx.setLineDash([8, 8]);
-
-  // Red goal (left)
-  ctx.strokeStyle = "#e53935";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(0, (worldHeight - goalHeight) / 2, goalWidth, goalHeight);
-
-  // Blue goal (right)
-  ctx.strokeStyle = "#1976d2";
-  ctx.strokeRect(
-    worldWidth - goalWidth,
-    (worldHeight - goalHeight) / 2,
-    goalWidth,
-    goalHeight,
-  );
-
-  ctx.setLineDash([]);
-  ctx.restore();
-}
-
 export function drawFlag(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -131,11 +100,13 @@ export function drawFlag(
   ctx.lineWidth = 4;
   ctx.stroke();
 
-  // Draw flag fabric
+  // Draw flag fabric with wave pattern
   ctx.beginPath();
   ctx.moveTo(x, y - 32);
-  ctx.lineTo(x + 22, y - 24);
-  ctx.lineTo(x, y - 16);
+  // Wave pattern on right edge
+  ctx.quadraticCurveTo(x + 24, y - 30, x + 22, y - 26);
+  ctx.quadraticCurveTo(x + 20, y - 24, x + 22, y - 22);
+  ctx.quadraticCurveTo(x + 24, y - 18, x, y - 16);
   ctx.closePath();
   ctx.fillStyle = team === "red" ? "#e53935" : "#1976d2";
   ctx.globalAlpha = dropped ? 0.7 : 1;
@@ -143,6 +114,46 @@ export function drawFlag(
   ctx.globalAlpha = 1;
   ctx.strokeStyle = "#333";
   ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+export function drawGhostFlag(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  team: Team
+): void {
+  ctx.save();
+
+  // Draw pole (semi-transparent)
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - 32);
+  ctx.strokeStyle = "#888";
+  ctx.lineWidth = 4;
+  ctx.globalAlpha = 0.2;
+  ctx.stroke();
+
+  // Draw flag fabric with wave pattern (very transparent)
+  ctx.beginPath();
+  ctx.moveTo(x, y - 32);
+  // Wave pattern on right edge (same as regular flag)
+  ctx.quadraticCurveTo(x + 24, y - 30, x + 22, y - 26);
+  ctx.quadraticCurveTo(x + 20, y - 24, x + 22, y - 22);
+  ctx.quadraticCurveTo(x + 24, y - 18, x, y - 16);
+  ctx.closePath();
+
+  // Fill with team color at very low opacity
+  ctx.fillStyle = team === "red" ? "#e53935" : "#1976d2";
+  ctx.globalAlpha = 0.2;
+  ctx.fill();
+
+  // Outline at low opacity
+  ctx.strokeStyle = team === "red" ? "#e53935" : "#1976d2";
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.3;
   ctx.stroke();
 
   ctx.restore();
@@ -163,11 +174,16 @@ export function drawCarriedFlag(
   ctx.lineWidth = 4;
   ctx.stroke();
 
-  // Draw flag fabric
+  // Draw flag fabric with wave pattern (scaled to player)
   ctx.beginPath();
-  ctx.moveTo(playerX, playerY - playerRadius * 1.7);
-  ctx.lineTo(playerX + 18, playerY - playerRadius * 1.55);
-  ctx.lineTo(playerX, playerY - playerRadius * 1.4);
+  const top = playerY - playerRadius * 1.7;
+  const bottom = playerY - playerRadius * 1.4;
+  const mid = (top + bottom) / 2;
+  ctx.moveTo(playerX, top);
+  // Wave pattern on right edge
+  ctx.quadraticCurveTo(playerX + 20, top + 2, playerX + 18, mid - 2);
+  ctx.quadraticCurveTo(playerX + 16, mid, playerX + 18, mid + 2);
+  ctx.quadraticCurveTo(playerX + 20, bottom - 2, playerX, bottom);
   ctx.closePath();
   ctx.fillStyle = team === "red" ? "#e53935" : "#1976d2";
   ctx.globalAlpha = 1;

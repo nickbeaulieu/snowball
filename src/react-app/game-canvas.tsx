@@ -21,8 +21,8 @@ import {
   drawGridBackground,
   drawWorldBorder,
   drawWalls,
-  drawGoalZones,
   drawFlag,
+  drawGhostFlag,
   drawPlayer,
   drawSnowballs,
   drawScoreDisplay,
@@ -510,15 +510,28 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
       // Draw walls
       drawWalls(ctx, WALLS);
 
-      // Draw goal zones
-      drawGoalZones(ctx, WORLD_WIDTH, WORLD_HEIGHT, GRID_SIZE);
-
-      // Draw team flags (if not carried)
-      if (flags?.red && !flags.red.carriedBy) {
-        drawFlag(ctx, flags.red.x, flags.red.y, "red", flags.red.dropped ?? false);
+      // Draw team flags
+      if (flags?.red) {
+        if (!flags.red.carriedBy) {
+          // Draw normal flag if not carried
+          drawFlag(ctx, flags.red.x, flags.red.y, "red", flags.red.dropped ?? false);
+        } else {
+          // Draw ghost flag at base when carried by enemy
+          const redBaseX = 80;
+          const redBaseY = WORLD_HEIGHT / 2;
+          drawGhostFlag(ctx, redBaseX, redBaseY, "red");
+        }
       }
-      if (flags?.blue && !flags.blue.carriedBy) {
-        drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", flags.blue.dropped ?? false);
+      if (flags?.blue) {
+        if (!flags.blue.carriedBy) {
+          // Draw normal flag if not carried
+          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", flags.blue.dropped ?? false);
+        } else {
+          // Draw ghost flag at base when carried by enemy
+          const blueBaseX = WORLD_WIDTH - 80;
+          const blueBaseY = WORLD_HEIGHT / 2;
+          drawGhostFlag(ctx, blueBaseX, blueBaseY, "blue");
+        }
       }
 
       // Draw all players (including local)

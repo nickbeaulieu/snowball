@@ -456,67 +456,40 @@ export class Room extends DurableObject<Env> {
           }
         }
 
-        // 2. If carrying ENEMY flag and in own goal zone, try to score
+        // 2. Check scoring: must be near own flag base while carrying enemy flag
         if (player.carryingFlag) {
-          const gridSize = 40;
-          const goalWidth = gridSize * 2;
-          const goalHeight = gridSize * 8;
+          const ownFlag = this.flags[player.team];
+          const carriedFlag = this.flags[player.carryingFlag];
 
-          // Define goal zones
-          const redGoal = {
-            x: 0,
-            y: (this.worldHeight - goalHeight) / 2,
-            w: goalWidth,
-            h: goalHeight,
-          };
-          const blueGoal = {
-            x: this.worldWidth - goalWidth,
-            y: (this.worldHeight - goalHeight) / 2,
-            w: goalWidth,
-            h: goalHeight,
-          };
+          // Calculate distance to own flag base position
+          const ownFlagBaseX = player.team === "red" ? 80 : this.worldWidth - 80;
+          const ownFlagBaseY = this.worldHeight / 2;
 
-          // Check if in own goal
-          const inOwnGoal =
-            (player.team === "red" &&
-              player.x >= redGoal.x &&
-              player.x <= redGoal.x + redGoal.w &&
-              player.y >= redGoal.y &&
-              player.y <= redGoal.y + redGoal.h) ||
-            (player.team === "blue" &&
-              player.x >= blueGoal.x &&
-              player.x <= blueGoal.x + blueGoal.w &&
-              player.y >= blueGoal.y &&
-              player.y <= blueGoal.y + blueGoal.h);
+          const dx = player.x - ownFlagBaseX;
+          const dy = player.y - ownFlagBaseY;
+          const distToBase = Math.sqrt(dx * dx + dy * dy);
 
-          // Score if: in own goal AND own flag is at base AND carrying enemy flag
-          if (inOwnGoal) {
-            const ownFlag = this.flags[player.team];
-            const carriedFlag = this.flags[player.carryingFlag];
+          // Use same radius as flag pickup for consistency
+          const SCORING_RADIUS = PLAYER_RADIUS + 18; // ~38px
 
-            // Can only score if your flag is at home
-            if (ownFlag.atBase && carriedFlag.carriedBy === player.id) {
-              this.scores[player.team]++;
+          // Score if: near own flag base AND own flag is at home AND carrying enemy flag
+          if (distToBase < SCORING_RADIUS && ownFlag.atBase && carriedFlag.carriedBy === player.id) {
+            this.scores[player.team]++;
 
-              // Check score limit win condition
-              if (
-                this.config.scoreLimit > 0 &&
-                this.scores[player.team] >= this.config.scoreLimit
-              ) {
-                this.endGame(player.team);
-                return;
-              }
-
-              // Return enemy flag to their base
-              carriedFlag.atBase = true;
-              carriedFlag.carriedBy = undefined;
-              carriedFlag.dropped = false;
-              carriedFlag.x =
-                player.carryingFlag === "red" ? 80 : this.worldWidth - 80;
-              carriedFlag.y = this.worldHeight / 2;
-
-              player.carryingFlag = undefined;
+            // Check win condition
+            if (this.config.scoreLimit > 0 && this.scores[player.team] >= this.config.scoreLimit) {
+              this.endGame(player.team);
+              return;
             }
+
+            // Return enemy flag to their base
+            carriedFlag.atBase = true;
+            carriedFlag.carriedBy = undefined;
+            carriedFlag.dropped = false;
+            carriedFlag.x = player.carryingFlag === "red" ? 80 : this.worldWidth - 80;
+            carriedFlag.y = this.worldHeight / 2;
+
+            player.carryingFlag = undefined;
           }
         }
 
