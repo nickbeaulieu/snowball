@@ -18,8 +18,8 @@ import {
 import type { Player, ServerSnapshot, Snowball } from "../types";
 
 import {
+  drawVoidBackground,
   drawGridBackground,
-  drawWorldBorder,
   drawWalls,
   drawFlag,
   drawGhostFlag,
@@ -151,8 +151,7 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
         const logicalHeight = canvas.height / dpr;
         camX = predictedPlayerRef.current.x - logicalWidth / 2;
         camY = predictedPlayerRef.current.y - logicalHeight / 2;
-        camX = Math.max(0, Math.min(WORLD_WIDTH - logicalWidth, camX));
-        camY = Math.max(0, Math.min(WORLD_HEIGHT - logicalHeight, camY));
+        // Camera clamping removed - matches main render loop
       }
       // Mouse position in world coordinates
       const mouseX = e.clientX - rect.left + camX;
@@ -480,7 +479,13 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
       );
 
       const dpr = window.devicePixelRatio || 1;
-      ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+      const logicalWidth = canvas.width / dpr;
+      const logicalHeight = canvas.height / dpr;
+
+      ctx.clearRect(0, 0, logicalWidth, logicalHeight);
+
+      // Draw void background in screen space (before camera transform)
+      drawVoidBackground(ctx, logicalWidth, logicalHeight);
 
       // Camera follow logic
       const localPlayer = players.find(
@@ -489,24 +494,16 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
       let camX = 0,
         camY = 0;
       if (localPlayer) {
-        const dpr = window.devicePixelRatio || 1;
-        const logicalWidth = canvas.width / dpr;
-        const logicalHeight = canvas.height / dpr;
         camX = localPlayer.x - logicalWidth / 2;
         camY = localPlayer.y - logicalHeight / 2;
-        // Clamp camera to world bounds
-        camX = Math.max(0, Math.min(WORLD_WIDTH - logicalWidth, camX));
-        camY = Math.max(0, Math.min(WORLD_HEIGHT - logicalHeight, camY));
+        // Camera clamping removed - can now move freely
       }
 
       ctx.save();
       ctx.translate(-camX, -camY);
 
-      // Draw grid background
+      // Draw grid background in world space (after camera transform)
       drawGridBackground(ctx, WORLD_WIDTH, WORLD_HEIGHT, GRID_SIZE);
-
-      // Draw world border
-      drawWorldBorder(ctx, WORLD_WIDTH, WORLD_HEIGHT);
 
       // Draw walls
       drawWalls(ctx, WALLS);

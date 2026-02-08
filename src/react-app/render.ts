@@ -26,6 +26,16 @@ export function drawGridBackground(
   ctx.globalAlpha = 1;
 }
 
+export function drawVoidBackground(
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number
+): void {
+  // Fill entire canvas with dark gray void
+  ctx.fillStyle = "#2a2a2a";
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+}
+
 export function drawWorldBorder(
   ctx: CanvasRenderingContext2D,
   worldWidth: number,
@@ -433,9 +443,14 @@ export function drawScoreDisplay(
   ctx.textBaseline = "middle";
 
   // Draw red score (left)
-  ctx.fillStyle = "#e53935";
   ctx.font = "bold 36px sans-serif";
   ctx.textAlign = "right";
+  // Draw outline first
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 4;
+  ctx.strokeText(`${redScore}`, leftScoreX, bottomY);
+  // Draw fill on top
+  ctx.fillStyle = "#e53935";
   ctx.fillText(`${redScore}`, leftScoreX, bottomY);
 
   // Draw clock (center) - original size
