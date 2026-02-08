@@ -34,6 +34,23 @@ export function RoomPage() {
     return id;
   });
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const [nickname, setNickname] = useState<string>(() => {
+    return localStorage.getItem("playerNickname") || "";
+  });
+
+  // Persist nickname to localStorage
+  useEffect(() => {
+    if (nickname) {
+      localStorage.setItem("playerNickname", nickname);
+    }
+  }, [nickname]);
+
+  // Send nickname to server when connected
+  useEffect(() => {
+    if (ws && ws.readyState === WebSocket.OPEN && nickname) {
+      ws.send(JSON.stringify({ type: "set_nickname", nickname }));
+    }
+  }, [ws, nickname]);
 
   // Get phase from lobbyState to avoid duplication
   const phase = lobbyState?.phase || "lobby";
@@ -192,6 +209,8 @@ export function RoomPage() {
           lobbyState={lobbyState}
           websocket={ws}
           clientId={clientId}
+          nickname={nickname}
+          onNicknameChange={setNickname}
         />
       )}
 

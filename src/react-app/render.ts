@@ -290,6 +290,31 @@ export function drawPlayer(
   ctx.restore();
 }
 
+export function drawPlayerNickname(
+  ctx: CanvasRenderingContext2D,
+  player: Player,
+  playerRadius: number
+): void {
+  const nickname = player.nickname?.trim();
+  if (!nickname) return; // Don't render if no nickname
+
+  ctx.save();
+
+  // Position below player (closer than before)
+  const textY = player.y + playerRadius + 4;
+
+  // Text styling
+  ctx.font = "bold 14px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+
+  // Draw text
+  ctx.fillStyle = "#1e293b";
+  ctx.fillText(nickname, player.x, textY);
+
+  ctx.restore();
+}
+
 export function drawSnowballs(
   ctx: CanvasRenderingContext2D,
   snowballs: Snowball[],

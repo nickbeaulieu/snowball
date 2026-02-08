@@ -10,6 +10,7 @@ export type Player = {
   lastProcessedInput: number;
   lastThrowTime: number;
   lastSeen: number;
+  nickname?: string;
   hit: boolean;
   hitTime: number;
   team: Team;
@@ -60,6 +61,7 @@ export type PlayerReadyState = {
   playerId: string;
   isReady: boolean;
   selectedTeam?: Team;
+  nickname?: string;
 };
 
 // Client to server messages
@@ -71,7 +73,8 @@ export type ClientMessage =
   | { type: "select_team"; team: Team }
   | { type: "update_config"; config: Partial<RoomConfig> }
   | { type: "start_game" }
-  | { type: "reset_game" };
+  | { type: "reset_game" }
+  | { type: "set_nickname"; nickname: string };
 
 // Server to client messages
 export type ServerMessage =

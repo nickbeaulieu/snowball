@@ -134,6 +134,7 @@ export class Room extends DurableObject<Env> {
         lastProcessedInput: 0,
         lastSeen: Date.now(),
         lastThrowTime: 0,
+        nickname: undefined,
         hit: false,
         hitTime: 0,
         team,
@@ -145,6 +146,7 @@ export class Room extends DurableObject<Env> {
           playerId,
           isReady: false,
           selectedTeam: team,
+          nickname: undefined,
         });
       }
     } else {
@@ -287,6 +289,16 @@ export class Room extends DurableObject<Env> {
         player.team = msg.team;
         // Update spawn position based on team
         player.x = msg.team === "red" ? 120 : this.worldWidth - 120;
+        this.broadcastLobbyState();
+      }
+    } else if (msg.type === "set_nickname") {
+      // Update player nickname
+      const readyState = this.readyStates.get(playerId);
+      if (readyState && player) {
+        // Sanitize: trim whitespace, limit to 20 chars
+        const sanitized = msg.nickname.trim().slice(0, 20);
+        readyState.nickname = sanitized || undefined;
+        player.nickname = sanitized || undefined;
         this.broadcastLobbyState();
       }
     } else if (msg.type === "update_config") {

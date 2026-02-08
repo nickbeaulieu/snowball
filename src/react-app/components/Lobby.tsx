@@ -10,14 +10,17 @@ type LobbyProps = {
       playerId: string;
       isReady: boolean;
       selectedTeam?: Team;
+      nickname?: string;
     }>;
     hostId: string;
   };
   websocket: WebSocket;
   clientId: string;
+  nickname: string;
+  onNicknameChange: (nickname: string) => void;
 };
 
-export function Lobby({ lobbyState, websocket, clientId }: LobbyProps) {
+export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameChange }: LobbyProps) {
   const isHost = lobbyState.hostId === clientId;
   const myReadyState = lobbyState.readyStates.find(
     (rs) => rs.playerId === clientId
@@ -98,6 +101,60 @@ export function Lobby({ lobbyState, websocket, clientId }: LobbyProps) {
             ? "Configure settings and start when ready"
             : "Waiting for host to start the game"}
         </p>
+
+        {/* Nickname Input */}
+        <div
+          style={{
+            marginBottom: "2rem",
+            padding: "1.5rem",
+            background: "#f8fafc",
+            borderRadius: "0.5rem",
+            border: "2px solid #e2e8f0",
+          }}
+        >
+          <label
+            style={{
+              display: "block",
+              marginBottom: "0.5rem",
+              fontSize: "0.875rem",
+              fontWeight: "600",
+              color: "#475569",
+            }}
+          >
+            Your Nickname
+          </label>
+          <input
+            type="text"
+            value={nickname}
+            onChange={(e) => onNicknameChange(e.target.value)}
+            onBlur={(e) => {
+              sendMessage({
+                type: "set_nickname",
+                nickname: e.target.value
+              });
+            }}
+            placeholder="Enter your nickname..."
+            maxLength={20}
+            style={{
+              width: "100%",
+              padding: "0.75rem",
+              fontSize: "1rem",
+              border: "2px solid #e2e8f0",
+              borderRadius: "0.375rem",
+              background: "white",
+              outline: "none",
+            }}
+          />
+          <p
+            style={{
+              marginTop: "0.5rem",
+              fontSize: "0.75rem",
+              color: "#64748b",
+            }}
+          >
+            This will be displayed below your character during gameplay
+          </p>
+        </div>
 
         {/* Game Settings - Host Only */}
         {isHost && (
@@ -319,7 +376,9 @@ export function Lobby({ lobbyState, websocket, clientId }: LobbyProps) {
                       fontWeight: rs.playerId === clientId ? "600" : "400",
                     }}
                   >
-                    {rs.playerId === clientId ? "You" : rs.playerId.slice(0, 8)}
+                    {rs.playerId === clientId
+                      ? (rs.nickname || "You")
+                      : (rs.nickname || rs.playerId.slice(0, 8))}
                   </span>
                   {rs.playerId === lobbyState.hostId && (
                     <span

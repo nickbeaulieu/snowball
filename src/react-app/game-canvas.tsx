@@ -24,6 +24,7 @@ import {
   drawFlag,
   drawGhostFlag,
   drawPlayer,
+  drawPlayerNickname,
   drawSnowballs,
   drawScoreDisplay,
 } from "./render";
@@ -537,6 +538,7 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
       // Draw all players (including local)
       for (const p of players as Player[]) {
         drawPlayer(ctx, p, PLAYER_RADIUS, flags);
+        drawPlayerNickname(ctx, p, PLAYER_RADIUS);
       }
 
       // Blend both position and velocity for smooth correction (local prediction)
