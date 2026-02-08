@@ -1,5 +1,3 @@
-export const WORLD_WIDTH = 2000;
-export const WORLD_HEIGHT = 1000;
 export const GRID_SIZE = 40; // px - grid cell size for background and wall alignment
 export const WALL_THICKNESS = 40; // px - standard wall thickness
 export const SNOWBALL_SPEED = 500; // px/s

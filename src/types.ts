@@ -1,3 +1,5 @@
+import type { MapDefinition } from "./maps";
+
 export type Team = "red" | "blue";
 
 export type Player = {
@@ -54,6 +56,7 @@ export type RoomPhase = "lobby" | "playing" | "finished";
 export type RoomConfig = {
   scoreLimit: number; // 0 = unlimited, otherwise first to X points wins
   timeLimit: number; // 0 = unlimited, otherwise game duration in seconds
+  mapId?: string; // Optional map ID, defaults to 'classic'
 };
 
 // Player ready state for lobby
@@ -72,6 +75,7 @@ export type ClientMessage =
   | { type: "ready"; ready: boolean }
   | { type: "select_team"; team: Team }
   | { type: "update_config"; config: Partial<RoomConfig> }
+  | { type: "select_map"; mapId: string }
   | { type: "start_game" }
   | { type: "reset_game" }
   | { type: "set_nickname"; nickname: string };
@@ -87,4 +91,5 @@ export type ServerMessage =
       hostId: string;
       timeRemaining?: number; // seconds remaining in game (if time limit set)
       winner?: Team; // set when phase is "finished"
+      mapData: MapDefinition; // Current map definition
     };

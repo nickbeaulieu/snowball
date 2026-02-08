@@ -1,4 +1,3 @@
-import { WALLS } from "../walls";
 import { useEffect, useRef, useCallback } from "react";
 
 import {
@@ -9,13 +8,12 @@ import {
   CORRECTION_DURATION,
   CORRECTION_THRESHOLD,
   SNOWBALL_RADIUS,
-  WORLD_WIDTH,
-  WORLD_HEIGHT,
   PLAYER_RADIUS,
   GRID_SIZE,
 } from "../constants";
 
 import type { Player, ServerSnapshot, Snowball } from "../types";
+import type { MapDefinition } from "../maps";
 
 import {
   drawVoidBackground,
@@ -43,9 +41,10 @@ type InputMsg = {
 type GameCanvasProps = {
   websocket: WebSocket;
   clientId: string;
+  mapData: MapDefinition;
 };
 
-export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
+export function GameCanvas({ websocket, clientId, mapData }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Setup canvas for Retina/high-DPI displays
@@ -503,15 +502,15 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
       ctx.translate(-camX, -camY);
 
       // Draw grid background in world space (after camera transform)
-      drawGridBackground(ctx, WORLD_WIDTH, WORLD_HEIGHT, GRID_SIZE);
+      drawGridBackground(ctx, mapData.width, mapData.height, GRID_SIZE);
 
       // Draw walls
-      drawWalls(ctx, WALLS);
+      drawWalls(ctx, mapData.walls);
 
       // Draw team flags
       if (flags?.red) {
-        const redBaseX = 80;
-        const redBaseY = WORLD_HEIGHT / 2;
+        const redBaseX = mapData.teams.red.flagBase.x;
+        const redBaseY = mapData.teams.red.flagBase.y;
 
         if (flags.red.carriedBy) {
           // Draw ghost flag at base when carried
@@ -526,8 +525,8 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
         }
       }
       if (flags?.blue) {
-        const blueBaseX = WORLD_WIDTH - 80;
-        const blueBaseY = WORLD_HEIGHT / 2;
+        const blueBaseX = mapData.teams.blue.flagBase.x;
+        const blueBaseY = mapData.teams.blue.flagBase.y;
 
         if (flags.blue.carriedBy) {
           // Draw ghost flag at base when carried
@@ -607,7 +606,7 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
     draw();
 
     return () => cancelAnimationFrame(rafId);
-  }, []);
+  }, [mapData]);
 
   return (
     <canvas

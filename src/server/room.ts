@@ -1,4 +1,3 @@
-import { WALLS } from "../walls";
 import { DurableObject } from "cloudflare:workers";
 import {
   type ServerSnapshot,
@@ -10,6 +9,7 @@ import {
   type PlayerReadyState,
   type ClientMessage,
 } from "../types";
+import { getMap, DEFAULT_MAP_ID, type MapDefinition, type SpawnZone } from "../maps";
 import {
   ACCELERATION,
   FRICTION,
@@ -33,27 +33,21 @@ export class Room extends DurableObject<Env> {
   players: Map<string, Player> = new Map();
   sockets: Map<WebSocket, string> = new Map();
   tickInterval?: number;
-  worldWidth = 2000;
-  worldHeight = 1000;
+
+  // Map system
+  private currentMap: MapDefinition;
+
+  get worldWidth() {
+    return this.currentMap.width;
+  }
+
+  get worldHeight() {
+    return this.currentMap.height;
+  }
 
   snowballs: Snowball[] = [];
 
-  flags: Record<Team, FlagState> = {
-    red: {
-      x: 80,
-      y: this.worldHeight / 2,
-      atBase: true,
-      carriedBy: undefined,
-      dropped: false,
-    },
-    blue: {
-      x: this.worldWidth - 80,
-      y: this.worldHeight / 2,
-      atBase: true,
-      carriedBy: undefined,
-      dropped: false,
-    },
-  };
+  flags: Record<Team, FlagState>;
   scores: Record<Team, number> = { red: 0, blue: 0 };
 
   // Lobby and game phase management
@@ -69,6 +63,37 @@ export class Room extends DurableObject<Env> {
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
+
+    // Initialize map
+    this.currentMap = getMap(DEFAULT_MAP_ID);
+
+    // Initialize flags based on map
+    this.flags = {
+      red: {
+        x: this.currentMap.teams.red.flagBase.x,
+        y: this.currentMap.teams.red.flagBase.y,
+        atBase: true,
+        carriedBy: undefined,
+        dropped: false,
+      },
+      blue: {
+        x: this.currentMap.teams.blue.flagBase.x,
+        y: this.currentMap.teams.blue.flagBase.y,
+        atBase: true,
+        carriedBy: undefined,
+        dropped: false,
+      },
+    };
+  }
+
+  // Helper method to get random spawn position within a team's spawn zone
+  private getRandomSpawnPosition(spawnZone: SpawnZone): { x: number; y: number } {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = Math.random() * spawnZone.radius;
+    return {
+      x: spawnZone.x + Math.cos(angle) * distance,
+      y: spawnZone.y + Math.sin(angle) * distance,
+    };
   }
 
   async fetch(req: Request) {
@@ -124,10 +149,12 @@ export class Room extends DurableObject<Env> {
         team = redCount <= blueCount ? "red" : "blue";
       }
 
+      const spawnPos = this.getRandomSpawnPosition(this.currentMap.teams[team].spawnZone);
+
       this.players.set(playerId, {
         id: playerId,
-        x: team === "red" ? 120 : this.worldWidth - 120,
-        y: this.worldHeight / 2 + (Math.random() - 0.5) * 200,
+        x: spawnPos.x,
+        y: spawnPos.y,
         vx: 0,
         vy: 0,
         input: { up: false, down: false, left: false, right: false },
@@ -178,8 +205,8 @@ export class Room extends DurableObject<Env> {
       this.flags[flagTeam].carriedBy = undefined;
       this.flags[flagTeam].atBase = true;
       this.flags[flagTeam].dropped = false;
-      this.flags[flagTeam].x = flagTeam === "red" ? 80 : this.worldWidth - 80;
-      this.flags[flagTeam].y = this.worldHeight / 2;
+      this.flags[flagTeam].x = this.currentMap.teams[flagTeam].flagBase.x;
+      this.flags[flagTeam].y = this.currentMap.teams[flagTeam].flagBase.y;
     }
 
     this.sockets.delete(ws);
@@ -288,7 +315,9 @@ export class Room extends DurableObject<Env> {
         readyState.selectedTeam = msg.team;
         player.team = msg.team;
         // Update spawn position based on team
-        player.x = msg.team === "red" ? 120 : this.worldWidth - 120;
+        const spawnPos = this.getRandomSpawnPosition(this.currentMap.teams[msg.team].spawnZone);
+        player.x = spawnPos.x;
+        player.y = spawnPos.y;
         this.broadcastLobbyState();
       }
     } else if (msg.type === "set_nickname") {
@@ -309,6 +338,31 @@ export class Room extends DurableObject<Env> {
       }
       if (msg.config.timeLimit !== undefined) {
         this.config.timeLimit = Math.max(0, msg.config.timeLimit);
+      }
+      this.broadcastLobbyState();
+    } else if (msg.type === "select_map") {
+      // Update map selection (host only)
+      if (this.phase !== "lobby" || playerId !== this.hostId) return;
+      this.currentMap = getMap(msg.mapId);
+      this.config.mapId = msg.mapId;
+      // Reset flag positions for new map
+      this.flags.red.x = this.currentMap.teams.red.flagBase.x;
+      this.flags.red.y = this.currentMap.teams.red.flagBase.y;
+      this.flags.red.atBase = true;
+      this.flags.red.carriedBy = undefined;
+      this.flags.red.dropped = false;
+      this.flags.blue.x = this.currentMap.teams.blue.flagBase.x;
+      this.flags.blue.y = this.currentMap.teams.blue.flagBase.y;
+      this.flags.blue.atBase = true;
+      this.flags.blue.carriedBy = undefined;
+      this.flags.blue.dropped = false;
+      // Respawn all players to new spawn positions
+      for (const p of this.players.values()) {
+        const spawnPos = this.getRandomSpawnPosition(this.currentMap.teams[p.team].spawnZone);
+        p.x = spawnPos.x;
+        p.y = spawnPos.y;
+        p.vx = 0;
+        p.vy = 0;
       }
       this.broadcastLobbyState();
     } else if (msg.type === "start_game") {
@@ -421,8 +475,9 @@ export class Room extends DurableObject<Env> {
         nextY = Math.max(0, Math.min(this.worldHeight, nextY));
         // Simple AABB collision with walls
         const radius = PLAYER_RADIUS; // player radius
+        const walls = this.currentMap.walls;
         function collidesWall(x: number, y: number) {
-          for (const wall of WALLS) {
+          for (const wall of walls) {
             if (
               x + radius > wall.x &&
               x - radius < wall.x + wall.width &&
@@ -530,21 +585,20 @@ export class Room extends DurableObject<Env> {
                 this.flags[otherFlagTeam].carriedBy = undefined;
                 this.flags[otherFlagTeam].atBase = true;
                 this.flags[otherFlagTeam].dropped = false;
-                this.flags[otherFlagTeam].x =
-                  otherFlagTeam === "red" ? 80 : this.worldWidth - 80;
-                this.flags[otherFlagTeam].y = this.worldHeight / 2;
+                this.flags[otherFlagTeam].x = this.currentMap.teams[otherFlagTeam].flagBase.x;
+                this.flags[otherFlagTeam].y = this.currentMap.teams[otherFlagTeam].flagBase.y;
 
                 // Respawn both players
-                player.x =
-                  player.team === "red" ? 120 : this.worldWidth - 120;
-                player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                const playerSpawn = this.getRandomSpawnPosition(this.currentMap.teams[player.team].spawnZone);
+                player.x = playerSpawn.x;
+                player.y = playerSpawn.y;
                 player.vx = 0;
                 player.vy = 0;
                 player.carryingFlag = undefined;
 
-                other.x =
-                  other.team === "red" ? 120 : this.worldWidth - 120;
-                other.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                const otherSpawn = this.getRandomSpawnPosition(this.currentMap.teams[other.team].spawnZone);
+                other.x = otherSpawn.x;
+                other.y = otherSpawn.y;
                 other.vx = 0;
                 other.vy = 0;
                 other.carryingFlag = undefined;
@@ -554,14 +608,13 @@ export class Room extends DurableObject<Env> {
                 this.flags[flagTeam].carriedBy = undefined;
                 this.flags[flagTeam].atBase = true;
                 this.flags[flagTeam].dropped = false;
-                this.flags[flagTeam].x =
-                  flagTeam === "red" ? 80 : this.worldWidth - 80;
-                this.flags[flagTeam].y = this.worldHeight / 2;
+                this.flags[flagTeam].x = this.currentMap.teams[flagTeam].flagBase.x;
+                this.flags[flagTeam].y = this.currentMap.teams[flagTeam].flagBase.y;
 
                 // Respawn the opponent
-                other.x =
-                  other.team === "red" ? 120 : this.worldWidth - 120;
-                other.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                const otherSpawn = this.getRandomSpawnPosition(this.currentMap.teams[other.team].spawnZone);
+                other.x = otherSpawn.x;
+                other.y = otherSpawn.y;
                 other.vx = 0;
                 other.vy = 0;
                 other.carryingFlag = undefined;
@@ -571,14 +624,13 @@ export class Room extends DurableObject<Env> {
                 this.flags[flagTeam].carriedBy = undefined;
                 this.flags[flagTeam].atBase = true;
                 this.flags[flagTeam].dropped = false;
-                this.flags[flagTeam].x =
-                  flagTeam === "red" ? 80 : this.worldWidth - 80;
-                this.flags[flagTeam].y = this.worldHeight / 2;
+                this.flags[flagTeam].x = this.currentMap.teams[flagTeam].flagBase.x;
+                this.flags[flagTeam].y = this.currentMap.teams[flagTeam].flagBase.y;
 
                 // Respawn the current player
-                player.x =
-                  player.team === "red" ? 120 : this.worldWidth - 120;
-                player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+                const playerSpawn = this.getRandomSpawnPosition(this.currentMap.teams[player.team].spawnZone);
+                player.x = playerSpawn.x;
+                player.y = playerSpawn.y;
                 player.vx = 0;
                 player.vy = 0;
                 player.carryingFlag = undefined;
@@ -621,7 +673,7 @@ export class Room extends DurableObject<Env> {
       );
       // Remove snowballs that hit walls
       this.snowballs = this.snowballs.filter((s) => {
-        for (const wall of WALLS) {
+        for (const wall of this.currentMap.walls) {
           if (
             s.x + SNOWBALL_RADIUS > wall.x &&
             s.x - SNOWBALL_RADIUS < wall.x + wall.width &&
@@ -708,6 +760,7 @@ export class Room extends DurableObject<Env> {
       hostId: this.hostId || "",
       timeRemaining,
       winner: this.winner,
+      mapData: this.currentMap,
     };
 
     for (const ws of this.sockets.keys()) {
@@ -732,15 +785,15 @@ export class Room extends DurableObject<Env> {
     // Reset flags to base
     this.flags = {
       red: {
-        x: 80,
-        y: this.worldHeight / 2,
+        x: this.currentMap.teams.red.flagBase.x,
+        y: this.currentMap.teams.red.flagBase.y,
         atBase: true,
         carriedBy: undefined,
         dropped: false,
       },
       blue: {
-        x: this.worldWidth - 80,
-        y: this.worldHeight / 2,
+        x: this.currentMap.teams.blue.flagBase.x,
+        y: this.currentMap.teams.blue.flagBase.y,
         atBase: true,
         carriedBy: undefined,
         dropped: false,
@@ -752,8 +805,9 @@ export class Room extends DurableObject<Env> {
       const player = this.players.get(playerId);
       if (player && readyState.selectedTeam) {
         player.team = readyState.selectedTeam;
-        player.x = player.team === "red" ? 120 : this.worldWidth - 120;
-        player.y = this.worldHeight / 2 + (Math.random() - 0.5) * 200;
+        const spawnPos = this.getRandomSpawnPosition(this.currentMap.teams[player.team].spawnZone);
+        player.x = spawnPos.x;
+        player.y = spawnPos.y;
         player.vx = 0;
         player.vy = 0;
         player.hit = false;

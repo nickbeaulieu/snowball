@@ -7,6 +7,7 @@ import type {
   Team,
   GameState,
 } from "../../types";
+import type { MapDefinition } from "../../maps";
 import { Lobby } from "../components/Lobby";
 import { GameCanvas } from "../game-canvas";
 import { GameFinished } from "../components/GameFinished";
@@ -18,6 +19,7 @@ type LobbyState = {
   hostId: string;
   timeRemaining?: number;
   winner?: Team;
+  mapData: MapDefinition;
 };
 
 export function RoomPage() {
@@ -218,6 +220,7 @@ export function RoomPage() {
         <GameCanvas
           websocket={ws}
           clientId={clientId}
+          mapData={lobbyState.mapData}
         />
       )}
 

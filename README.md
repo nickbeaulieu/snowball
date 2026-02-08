@@ -1,9 +1,5 @@
 - Preview of map, or minimap
-- Copy link button should show only during lobby
 - As a non-host I sometimes get stuck in the "connecting to room" screen after the game starts
-
-- Render off map as a dark gray void
-    - Don't limit the camera to the map edges
 
 - Mercy rule
 - Speed settings

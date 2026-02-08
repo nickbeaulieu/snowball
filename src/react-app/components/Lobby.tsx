@@ -1,10 +1,13 @@
 import type { Team } from "../../types";
+import type { MapDefinition } from "../../maps";
+import { getAllMaps } from "../../maps";
 
 type LobbyProps = {
   lobbyState: {
     config: {
       scoreLimit: number;
       timeLimit: number;
+      mapId?: string;
     };
     readyStates: Array<{
       playerId: string;
@@ -13,6 +16,7 @@ type LobbyProps = {
       nickname?: string;
     }>;
     hostId: string;
+    mapData: MapDefinition;
   };
   websocket: WebSocket;
   clientId: string;
@@ -46,6 +50,10 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
 
   const handleUpdateConfig = (config: unknown) => {
     sendMessage({ type: "update_config", config });
+  };
+
+  const handleSelectMap = (mapId: string) => {
+    sendMessage({ type: "select_map", mapId });
   };
 
   const handleStartGame = () => {
@@ -176,6 +184,40 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
             >
               Game Settings
             </h2>
+
+            <div style={{ marginBottom: "1rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "0.5rem",
+                  fontSize: "0.875rem",
+                  fontWeight: "600",
+                  color: "#475569",
+                }}
+              >
+                Map
+              </label>
+              <select
+                value={lobbyState.mapData.id}
+                onChange={(e) => handleSelectMap(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "0.5rem",
+                  fontSize: "1rem",
+                  border: "2px solid #e2e8f0",
+                  borderRadius: "0.375rem",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+              >
+                {getAllMaps().map((map) => (
+                  <option key={map.id} value={map.id}>
+                    {map.name}
+                    {map.description ? ` - ${map.description}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <div style={{ marginBottom: "1rem" }}>
               <label
