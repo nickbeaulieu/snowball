@@ -529,8 +529,9 @@ export class Room extends DurableObject<Env> {
           const carriedFlag = this.flags[player.carryingFlag];
 
           // Calculate distance to own flag base position
-          const ownFlagBaseX = player.team === "red" ? 80 : this.worldWidth - 80;
-          const ownFlagBaseY = this.worldHeight / 2;
+          const ownFlagBase = this.currentMap.teams[player.team].flagBase;
+          const ownFlagBaseX = ownFlagBase.x;
+          const ownFlagBaseY = ownFlagBase.y;
 
           const dx = player.x - ownFlagBaseX;
           const dy = player.y - ownFlagBaseY;
@@ -553,8 +554,9 @@ export class Room extends DurableObject<Env> {
             carriedFlag.atBase = true;
             carriedFlag.carriedBy = undefined;
             carriedFlag.dropped = false;
-            carriedFlag.x = player.carryingFlag === "red" ? 80 : this.worldWidth - 80;
-            carriedFlag.y = this.worldHeight / 2;
+            const enemyFlagBase = this.currentMap.teams[player.carryingFlag].flagBase;
+            carriedFlag.x = enemyFlagBase.x;
+            carriedFlag.y = enemyFlagBase.y;
 
             player.carryingFlag = undefined;
           }
