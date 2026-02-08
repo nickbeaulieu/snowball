@@ -1,11 +1,13 @@
 import type { MapDefinition } from "./types";
 import { classicMap } from "./classic";
 import { arenaMap } from "./arena";
+import { uValleyMap } from "./uvalley";
 
 // Map registry
 export const MAPS: Record<string, MapDefinition> = {
   classic: classicMap,
   arena: arenaMap,
+  uvalley: uValleyMap,
 };
 
 // Default map
