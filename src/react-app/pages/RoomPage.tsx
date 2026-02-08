@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import type {
   RoomPhase,
@@ -6,6 +6,7 @@ import type {
   PlayerReadyState,
   Team,
   GameState,
+  ServerSnapshot,
 } from "../../types";
 import type { MapDefinition } from "../../maps";
 import { Lobby } from "../components/Lobby";
@@ -39,6 +40,17 @@ export function RoomPage() {
   const [nickname, setNickname] = useState<string>(() => {
     return localStorage.getItem("playerNickname") || "";
   });
+
+  // Buffer for game state messages received during phase transition
+  // This captures messages that arrive between lobby→playing phase change
+  // and GameCanvas mounting its listener
+  const gameStateBufferRef = useRef<ServerSnapshot[]>([]);
+
+  // Track previous phase to detect transitions
+  const prevPhaseRef = useRef<RoomPhase | null>(null);
+
+  // State to pass initial snapshots to GameCanvas (snapshot of buffer at mount time)
+  const [initialSnapshots, setInitialSnapshots] = useState<ServerSnapshot[]>([]);
 
   // Persist nickname to localStorage
   useEffect(() => {
@@ -76,9 +88,34 @@ export function RoomPage() {
       const msg = JSON.parse(e.data);
 
       if (msg.type === "lobby_state") {
+        const prevPhase = prevPhaseRef.current;
+        const newPhase = msg.phase;
+
+        // Detect lobby → playing transition
+        if (prevPhase === "lobby" && newPhase === "playing") {
+          // Clear any stale buffered messages from previous game
+          gameStateBufferRef.current = [];
+          // Snapshot buffer for GameCanvas mount
+          setInitialSnapshots([]);
+        }
+
         setLobbyState(msg);
+        prevPhaseRef.current = newPhase;
+
       } else if (msg.type === "state") {
         setGameState(msg.state);
+
+        // Buffer game state messages during transition window
+        // GameCanvas will consume this buffer on mount
+        if (lobbyState?.phase === "playing") {
+          gameStateBufferRef.current.push(msg);
+          // Update state with buffered messages for GameCanvas
+          setInitialSnapshots([...gameStateBufferRef.current]);
+          // Limit buffer size to prevent memory issues (50 messages ≈ 1.6 seconds at 30Hz)
+          if (gameStateBufferRef.current.length > 50) {
+            gameStateBufferRef.current.shift();
+          }
+        }
       }
     };
 
@@ -221,6 +258,7 @@ export function RoomPage() {
           websocket={ws}
           clientId={clientId}
           mapData={lobbyState.mapData}
+          initialSnapshots={initialSnapshots}
         />
       )}
 

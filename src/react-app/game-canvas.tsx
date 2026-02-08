@@ -42,9 +42,15 @@ type GameCanvasProps = {
   websocket: WebSocket;
   clientId: string;
   mapData: MapDefinition;
+  initialSnapshots?: ServerSnapshot[];
 };
 
-export function GameCanvas({ websocket, clientId, mapData }: GameCanvasProps) {
+export function GameCanvas({
+  websocket,
+  clientId,
+  mapData,
+  initialSnapshots = [],
+}: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Setup canvas for Retina/high-DPI displays
@@ -177,6 +183,25 @@ export function GameCanvas({ websocket, clientId, mapData }: GameCanvasProps) {
 
   // Setup WebSocket message handler
   useEffect(() => {
+    // Initialize snapshot buffer with any messages received before mount
+    // This prevents losing game state during lobby→playing transition
+    if (initialSnapshots.length > 0) {
+      snapshotBufferRef.current = [...initialSnapshots];
+
+      // Process the most recent snapshot to initialize player state
+      const latestSnapshot = initialSnapshots[initialSnapshots.length - 1];
+      if (latestSnapshot) {
+        timeRemainingRef.current = latestSnapshot.state.timeRemaining;
+
+        const me = latestSnapshot.state.players.find(
+          (p: Player) => p.id === playerIdRef.current,
+        );
+        if (me && !predictedPlayerRef.current) {
+          predictedPlayerRef.current = { ...me, vx: me.vx ?? 0, vy: me.vy ?? 0 };
+        }
+      }
+    }
+
     const handleMessage = (e: MessageEvent) => {
       const msg = JSON.parse(e.data);
       if (msg.type !== "state") return;
@@ -262,7 +287,7 @@ export function GameCanvas({ websocket, clientId, mapData }: GameCanvasProps) {
     return () => {
       websocket.removeEventListener("message", handleMessage);
     };
-  }, [websocket, clientId]);
+  }, [websocket, clientId, initialSnapshots]);
 
   /* ---------------- Keyboard input ---------------- */
 
