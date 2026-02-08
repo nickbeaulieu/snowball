@@ -1,5 +1,5 @@
 import { WALLS } from "../walls";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 import {
   ACCELERATION,
@@ -96,6 +96,35 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
 
   // Track when the player last threw a snowball (for cooldown)
   const lastThrowTimeRef = useRef<number>(0);
+
+  // Helper to throw a snowball in a given direction (or current movement if not specified)
+  const throwSnowball = useCallback((dirX?: number, dirY?: number) => {
+    const now = performance.now() / 1000;
+    if (now - lastThrowTimeRef.current < 0.2) return; // 200ms cooldown
+    lastThrowTimeRef.current = now;
+    const player = predictedPlayerRef.current;
+    if (!player) return;
+    let dx = dirX;
+    let dy = dirY;
+    if (dx === undefined || dy === undefined) {
+      dx = player.vx ?? 0;
+      dy = player.vy ?? 0;
+      if (dx === 0 && dy === 0) {
+        dy = -1; // default up
+      }
+      const len = Math.hypot(dx, dy);
+      if (len === 0) return;
+      dx /= len;
+      dy /= len;
+    }
+    websocket.send(
+      JSON.stringify({
+        type: "throw",
+        dir: { x: dx, y: dy },
+      }),
+    );
+  }, [websocket]);
+
   // Handle snowball throw input (spacebar or mouse click)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -143,36 +172,7 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
       window.removeEventListener("keydown", handleKey);
       if (canvas) canvas.removeEventListener("mousedown", handleMouse);
     };
-    // (removed unused eslint-disable)
-  }, []);
-
-  // Helper to throw a snowball in a given direction (or current movement if not specified)
-  function throwSnowball(dirX?: number, dirY?: number) {
-    const now = performance.now() / 1000;
-    if (now - lastThrowTimeRef.current < 0.2) return; // 200ms cooldown
-    lastThrowTimeRef.current = now;
-    const player = predictedPlayerRef.current;
-    if (!player) return;
-    let dx = dirX;
-    let dy = dirY;
-    if (dx === undefined || dy === undefined) {
-      dx = player.vx ?? 0;
-      dy = player.vy ?? 0;
-      if (dx === 0 && dy === 0) {
-        dy = -1; // default up
-      }
-      const len = Math.hypot(dx, dy);
-      if (len === 0) return;
-      dx /= len;
-      dy /= len;
-    }
-    websocket.send(
-      JSON.stringify({
-        type: "throw",
-        dir: { x: dx, y: dy },
-      }),
-    );
-  }
+  }, [throwSnowball, websocket]);
 
   /* ---------------- WebSocket ---------------- */
 
@@ -356,7 +356,7 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
     }, 33); // Match server tick (30Hz)
 
     return () => clearInterval(interval);
-  }, []);
+  }, [websocket]);
 
   /* ---------------- Render loop ---------------- */
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import type {
   RoomPhase,
@@ -25,21 +25,18 @@ export function RoomPage() {
   const [lobbyState, setLobbyState] = useState<LobbyState | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [connected, setConnected] = useState(false);
-  const [clientId, setClientId] = useState<string>("");
-  const wsRef = useRef<WebSocket | null>(null);
-
-  // Get phase from lobbyState to avoid duplication
-  const phase = lobbyState?.phase || "lobby";
-
-  // Separate effect for client ID to avoid recreating WebSocket
-  useEffect(() => {
+  const [clientId] = useState<string>(() => {
     let id = localStorage.getItem("clientId");
     if (!id) {
       id = crypto.randomUUID();
       localStorage.setItem("clientId", id);
     }
-    setClientId(id);
-  }, []);
+    return id;
+  });
+  const [ws, setWs] = useState<WebSocket | null>(null);
+
+  // Get phase from lobbyState to avoid duplication
+  const phase = lobbyState?.phase || "lobby";
 
   // WebSocket effect
   useEffect(() => {
@@ -49,10 +46,10 @@ export function RoomPage() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${host}/api/join?room=${roomId}&clientId=${clientId}`;
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    const websocket = new WebSocket(wsUrl);
 
     const handleOpen = () => {
+      setWs(websocket);
       setConnected(true);
     };
 
@@ -66,27 +63,28 @@ export function RoomPage() {
       }
     };
 
-    const handleClose = (e: CloseEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const handleClose = (_: CloseEvent) => {
       setConnected(false);
-      wsRef.current = null;
+      setWs(null);
     };
 
     const handleError = (err: Event) => {
       console.error("WebSocket error:", err);
     };
 
-    ws.addEventListener("open", handleOpen);
-    ws.addEventListener("message", handleMessage);
-    ws.addEventListener("close", handleClose);
-    ws.addEventListener("error", handleError);
+    websocket.addEventListener("open", handleOpen);
+    websocket.addEventListener("message", handleMessage);
+    websocket.addEventListener("close", handleClose);
+    websocket.addEventListener("error", handleError);
 
     return () => {
-      ws.removeEventListener("open", handleOpen);
-      ws.removeEventListener("message", handleMessage);
-      ws.removeEventListener("close", handleClose);
-      ws.removeEventListener("error", handleError);
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
+      websocket.removeEventListener("open", handleOpen);
+      websocket.removeEventListener("message", handleMessage);
+      websocket.removeEventListener("close", handleClose);
+      websocket.removeEventListener("error", handleError);
+      if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING) {
+        websocket.close();
       }
     };
   }, [roomId, clientId]);
@@ -186,27 +184,27 @@ export function RoomPage() {
         </div>
       )}
 
-      {phase === "lobby" && lobbyState && wsRef.current && (
+      {phase === "lobby" && lobbyState && ws && (
         <Lobby
           lobbyState={lobbyState}
-          websocket={wsRef.current}
+          websocket={ws}
           clientId={clientId}
         />
       )}
 
-      {phase === "playing" && wsRef.current && lobbyState && (
+      {phase === "playing" && lobbyState && ws && (
         <GameCanvas
-          websocket={wsRef.current}
+          websocket={ws}
           clientId={clientId}
         />
       )}
 
-      {phase === "finished" && lobbyState && wsRef.current && (
+      {phase === "finished" && lobbyState && ws && (
         <GameFinished
           winner={lobbyState.winner}
           scores={gameState?.scores}
           isHost={lobbyState.hostId === clientId}
-          websocket={wsRef.current}
+          websocket={ws}
         />
       )}
     </div>
