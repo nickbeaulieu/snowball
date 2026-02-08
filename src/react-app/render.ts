@@ -453,18 +453,28 @@ export function drawScoreDisplay(
   ctx.fillStyle = "#e53935";
   ctx.fillText(`${redScore}`, leftScoreX, bottomY);
 
-  // Draw clock (center) - original size
+  // Draw clock (center)
   if (clockText) {
-    ctx.fillStyle = "#333";
     ctx.font = "bold 24px monospace";
     ctx.textAlign = "center";
+    // Draw outline first
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 3;
+    ctx.strokeText(clockText, clockX, bottomY + 2);
+    // Draw fill on top
+    ctx.fillStyle = "#fff";
     ctx.fillText(clockText, clockX, bottomY + 2);
   }
 
   // Draw blue score (right)
-  ctx.fillStyle = "#1976d2";
   ctx.font = "bold 36px sans-serif";
   ctx.textAlign = "left";
+  // Draw outline first
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 4;
+  ctx.strokeText(`${blueScore}`, rightScoreX, bottomY);
+  // Draw fill on top
+  ctx.fillStyle = "#1976d2";
   ctx.fillText(`${blueScore}`, rightScoreX, bottomY);
 
   ctx.restore();
