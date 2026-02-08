@@ -127,7 +127,9 @@ export function RoomPage() {
   return (
     <div style={{ minHeight: "100vh" }}>
       {/* Room header */}
-      <div
+      
+      {lobbyState?.phase === 'lobby' && (
+        <div
         style={{
           position: "absolute",
           top: "1rem",
@@ -161,6 +163,7 @@ export function RoomPage() {
           Copy Link
         </button>
       </div>
+      )}
 
       {/* Render based on phase */}
       {!lobbyState && (
