@@ -6,9 +6,6 @@
 - Render off map as a dark gray void
     - Don't limit the camera to the map edges
 
-- Set your name as a player
-    - render the name below the player
-
 - Mercy rule
 - Speed settings
 - Choose a map

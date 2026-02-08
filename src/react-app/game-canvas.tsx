@@ -513,25 +513,35 @@ export function GameCanvas({ websocket, clientId }: GameCanvasProps) {
 
       // Draw team flags
       if (flags?.red) {
-        if (!flags.red.carriedBy) {
-          // Draw normal flag if not carried
-          drawFlag(ctx, flags.red.x, flags.red.y, "red", flags.red.dropped ?? false);
-        } else {
-          // Draw ghost flag at base when carried by enemy
-          const redBaseX = 80;
-          const redBaseY = WORLD_HEIGHT / 2;
+        const redBaseX = 80;
+        const redBaseY = WORLD_HEIGHT / 2;
+
+        if (flags.red.carriedBy) {
+          // Draw ghost flag at base when carried
           drawGhostFlag(ctx, redBaseX, redBaseY, "red");
+        } else if (flags.red.dropped) {
+          // Draw both normal flag at drop position (full opacity) AND ghost at base
+          drawFlag(ctx, flags.red.x, flags.red.y, "red", false);
+          drawGhostFlag(ctx, redBaseX, redBaseY, "red");
+        } else {
+          // Draw normal flag at base
+          drawFlag(ctx, flags.red.x, flags.red.y, "red", false);
         }
       }
       if (flags?.blue) {
-        if (!flags.blue.carriedBy) {
-          // Draw normal flag if not carried
-          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", flags.blue.dropped ?? false);
-        } else {
-          // Draw ghost flag at base when carried by enemy
-          const blueBaseX = WORLD_WIDTH - 80;
-          const blueBaseY = WORLD_HEIGHT / 2;
+        const blueBaseX = WORLD_WIDTH - 80;
+        const blueBaseY = WORLD_HEIGHT / 2;
+
+        if (flags.blue.carriedBy) {
+          // Draw ghost flag at base when carried
           drawGhostFlag(ctx, blueBaseX, blueBaseY, "blue");
+        } else if (flags.blue.dropped) {
+          // Draw both normal flag at drop position (full opacity) AND ghost at base
+          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", false);
+          drawGhostFlag(ctx, blueBaseX, blueBaseY, "blue");
+        } else {
+          // Draw normal flag at base
+          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", false);
         }
       }
 
