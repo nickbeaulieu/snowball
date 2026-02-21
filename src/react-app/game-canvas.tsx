@@ -29,6 +29,8 @@ import {
   drawAmmoBar,
   drawCorpse,
   groupConnectedWalls,
+  computeContour,
+  isSimpleGroup,
 } from "./render";
 
 let inputSeq = 0;
@@ -96,8 +98,14 @@ export function GameCanvas({
 
   const playerIdRef = useRef<string>(clientId);
 
-  // Pre-compute wall groups once per map (avoids O(n^2) per frame)
-  const wallGroups = useMemo(() => groupConnectedWalls(mapData.walls), [mapData]);
+  // Pre-compute wall groups and contours once per map
+  const { wallGroups, wallContours } = useMemo(() => {
+    const groups = groupConnectedWalls(mapData.walls);
+    const contours = groups.map(group =>
+      isSimpleGroup(group) ? null : computeContour(group)
+    );
+    return { wallGroups: groups, wallContours: contours };
+  }, [mapData]);
 
   // Buffer of recent server snapshots for interpolation
   const snapshotBufferRef = useRef<ServerSnapshot[]>([]);
@@ -125,6 +133,9 @@ export function GameCanvas({
 
   // Store time remaining for access in render loop (updated from game state)
   const timeRemainingRef = useRef<number | undefined>(undefined);
+
+  // Screen shake on hit
+  const shakeRef = useRef<{ startTime: number; intensity: number } | null>(null);
 
   // Track when the player last threw a snowball (for cooldown)
   const lastThrowTimeRef = useRef<number>(0);
@@ -260,9 +271,16 @@ export function GameCanvas({
         correctionStartRef.current = null;
         correctionTargetRef.current = null;
       } else {
+        // Detect hit transition for screen shake
+        const wasHit = predictedPlayerRef.current.hit;
+
         // Sync non-predicted state from server (flags, hit state, etc.)
         predictedPlayerRef.current.carryingFlag = me.carryingFlag;
         predictedPlayerRef.current.hit = me.hit;
+
+        if (!wasHit && me.hit) {
+          shakeRef.current = { startTime: performance.now(), intensity: 4 };
+        }
         predictedPlayerRef.current.hitTime = me.hitTime;
         predictedPlayerRef.current.dead = me.dead;
         predictedPlayerRef.current.deadTime = me.deadTime;
@@ -601,14 +619,32 @@ export function GameCanvas({
         camY = localPlayer.y - logicalHeight / 2;
       }
 
+      // Screen shake
+      let shakeX = 0, shakeY = 0;
+      if (shakeRef.current) {
+        const elapsed = performance.now() - shakeRef.current.startTime;
+        const duration = 300;
+        if (elapsed < duration) {
+          const decay = 1 - elapsed / duration;
+          const intensity = shakeRef.current.intensity * decay;
+          shakeX = (Math.random() - 0.5) * 2 * intensity;
+          shakeY = (Math.random() - 0.5) * 2 * intensity;
+        } else {
+          shakeRef.current = null;
+        }
+      }
+
       ctx.save();
-      ctx.translate(-camX, -camY);
+      ctx.translate(-camX + shakeX, -camY + shakeY);
+
+      // Animation time in seconds
+      const timeSec = now / 1000;
 
       // Draw grid background in world space (after camera transform)
       drawGridBackground(ctx, mapData.width, mapData.height, GRID_SIZE);
 
-      // Draw walls (using pre-computed groups to avoid O(n^2) per frame)
-      drawWalls(ctx, mapData.walls, wallGroups);
+      // Draw walls (using pre-computed groups and contours)
+      drawWalls(ctx, mapData.walls, wallGroups, wallContours);
 
       // Draw team flags
       if (flags?.red) {
@@ -616,15 +652,12 @@ export function GameCanvas({
         const redBaseY = mapData.teams.red.flagBase.y;
 
         if (flags.red.carriedBy) {
-          // Draw ghost flag at base when carried
-          drawGhostFlag(ctx, redBaseX, redBaseY, "red");
+          drawGhostFlag(ctx, redBaseX, redBaseY, "red", timeSec);
         } else if (flags.red.dropped) {
-          // Draw both normal flag at drop position (full opacity) AND ghost at base
-          drawFlag(ctx, flags.red.x, flags.red.y, "red", false);
-          drawGhostFlag(ctx, redBaseX, redBaseY, "red");
+          drawFlag(ctx, flags.red.x, flags.red.y, "red", false, timeSec);
+          drawGhostFlag(ctx, redBaseX, redBaseY, "red", timeSec);
         } else {
-          // Draw normal flag at base
-          drawFlag(ctx, flags.red.x, flags.red.y, "red", false);
+          drawFlag(ctx, flags.red.x, flags.red.y, "red", false, timeSec);
         }
       }
       if (flags?.blue) {
@@ -632,15 +665,12 @@ export function GameCanvas({
         const blueBaseY = mapData.teams.blue.flagBase.y;
 
         if (flags.blue.carriedBy) {
-          // Draw ghost flag at base when carried
-          drawGhostFlag(ctx, blueBaseX, blueBaseY, "blue");
+          drawGhostFlag(ctx, blueBaseX, blueBaseY, "blue", timeSec);
         } else if (flags.blue.dropped) {
-          // Draw both normal flag at drop position (full opacity) AND ghost at base
-          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", false);
-          drawGhostFlag(ctx, blueBaseX, blueBaseY, "blue");
+          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", false, timeSec);
+          drawGhostFlag(ctx, blueBaseX, blueBaseY, "blue", timeSec);
         } else {
-          // Draw normal flag at base
-          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", false);
+          drawFlag(ctx, flags.blue.x, flags.blue.y, "blue", false, timeSec);
         }
       }
 
@@ -649,7 +679,7 @@ export function GameCanvas({
         if (p.dead) {
           drawCorpse(ctx, p.deathX, p.deathY, p.team, PLAYER_RADIUS, p.deadTime);
         } else {
-          drawPlayer(ctx, p, PLAYER_RADIUS, flags);
+          drawPlayer(ctx, p, PLAYER_RADIUS, flags, timeSec);
           drawPlayerNickname(ctx, p, PLAYER_RADIUS);
         }
       }
@@ -727,7 +757,7 @@ export function GameCanvas({
     draw();
 
     return () => cancelAnimationFrame(rafId);
-  }, [mapData, wallGroups]);
+  }, [mapData, wallGroups, wallContours]);
 
   return (
     <canvas

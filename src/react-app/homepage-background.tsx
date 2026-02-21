@@ -18,6 +18,8 @@ import {
   drawVoidBackground,
   drawWalls,
   groupConnectedWalls,
+  computeContour,
+  isSimpleGroup,
   drawFlag,
   drawGhostFlag,
   drawPlayer,
@@ -246,6 +248,9 @@ export function HomepageBackground() {
 
     // --- Init ---
     const wallGroups = groupConnectedWalls(MAP.walls);
+    const wallContours = wallGroups.map(group =>
+      isSimpleGroup(group) ? null : computeContour(group)
+    );
     const names = shuffle(BOT_NAMES);
 
     const bots: SimBot[] = [];
@@ -757,7 +762,9 @@ export function HomepageBackground() {
       ctx!.translate(-camera.x, -camera.y);
 
       drawGridBackground(ctx!, MAP.width, MAP.height, GRID_SIZE);
-      drawWalls(ctx!, MAP.walls, wallGroups);
+      drawWalls(ctx!, MAP.walls, wallGroups, wallContours);
+
+      const timeSec = Date.now() / 1000;
 
       // Draw flags
       const renderFlags = {
@@ -767,24 +774,24 @@ export function HomepageBackground() {
 
       // Ghost flags (when flag not at base)
       if (!flags.red.atBase) {
-        drawGhostFlag(ctx!, MAP.teams.red.flagBase.x, MAP.teams.red.flagBase.y, "red");
+        drawGhostFlag(ctx!, MAP.teams.red.flagBase.x, MAP.teams.red.flagBase.y, "red", timeSec);
       }
       if (!flags.blue.atBase) {
-        drawGhostFlag(ctx!, MAP.teams.blue.flagBase.x, MAP.teams.blue.flagBase.y, "blue");
+        drawGhostFlag(ctx!, MAP.teams.blue.flagBase.x, MAP.teams.blue.flagBase.y, "blue", timeSec);
       }
 
       // Actual flags (only draw if not carried — carried flags are drawn by drawPlayer)
       if (!flags.red.carriedBy) {
-        drawFlag(ctx!, flags.red.x, flags.red.y, "red", flags.red.dropped);
+        drawFlag(ctx!, flags.red.x, flags.red.y, "red", flags.red.dropped, timeSec);
       }
       if (!flags.blue.carriedBy) {
-        drawFlag(ctx!, flags.blue.x, flags.blue.y, "blue", flags.blue.dropped);
+        drawFlag(ctx!, flags.blue.x, flags.blue.y, "blue", flags.blue.dropped, timeSec);
       }
 
       // Draw bots
       for (const bot of bots) {
         const p = toPlayer(bot);
-        drawPlayer(ctx!, p, PLAYER_RADIUS, renderFlags);
+        drawPlayer(ctx!, p, PLAYER_RADIUS, renderFlags, timeSec);
         drawPlayerNickname(ctx!, p, PLAYER_RADIUS);
       }
 

@@ -153,6 +153,223 @@ function createUnifiedPath(
   ctx.closePath();
 }
 
+// --- Grid-based contour system for seamless wall rendering ---
+
+type ContourPoint = { x: number; y: number };
+type ContourLoop = ContourPoint[];
+
+// Compute the outer contour of a group of wall rectangles using grid occupancy
+export function computeContour(
+  group: Array<{ x: number; y: number; width: number; height: number }>,
+  cellSize: number = 40
+): ContourLoop[] {
+  // Step 1: Build grid occupancy
+  const grid = new Set<string>();
+  for (const wall of group) {
+    const startGX = Math.round(wall.x / cellSize);
+    const startGY = Math.round(wall.y / cellSize);
+    const endGX = Math.round((wall.x + wall.width) / cellSize);
+    const endGY = Math.round((wall.y + wall.height) / cellSize);
+    for (let gx = startGX; gx < endGX; gx++) {
+      for (let gy = startGY; gy < endGY; gy++) {
+        grid.add(`${gx},${gy}`);
+      }
+    }
+  }
+
+  // Step 2: Extract exterior edges
+  type Edge = { x1: number; y1: number; x2: number; y2: number; dir: string };
+  const edges: Edge[] = [];
+
+  for (const key of grid) {
+    const [gx, gy] = key.split(',').map(Number);
+    const wx = gx * cellSize;
+    const wy = gy * cellSize;
+
+    if (!grid.has(`${gx},${gy - 1}`)) {
+      edges.push({ x1: wx, y1: wy, x2: wx + cellSize, y2: wy, dir: 'right' });
+    }
+    if (!grid.has(`${gx + 1},${gy}`)) {
+      edges.push({ x1: wx + cellSize, y1: wy, x2: wx + cellSize, y2: wy + cellSize, dir: 'down' });
+    }
+    if (!grid.has(`${gx},${gy + 1}`)) {
+      edges.push({ x1: wx + cellSize, y1: wy + cellSize, x2: wx, y2: wy + cellSize, dir: 'left' });
+    }
+    if (!grid.has(`${gx - 1},${gy}`)) {
+      edges.push({ x1: wx, y1: wy + cellSize, x2: wx, y2: wy, dir: 'up' });
+    }
+  }
+
+  // Step 3: Chain edges into loops
+  const edgesByStart = new Map<string, Edge[]>();
+  for (const e of edges) {
+    const key = `${e.x1},${e.y1}`;
+    if (!edgesByStart.has(key)) edgesByStart.set(key, []);
+    edgesByStart.get(key)!.push(e);
+  }
+
+  // "Turn right" priority for CW traversal at junctions
+  const turnPriority: Record<string, string[]> = {
+    'right': ['down', 'right', 'up'],
+    'down': ['left', 'down', 'right'],
+    'left': ['up', 'left', 'down'],
+    'up': ['right', 'up', 'left'],
+  };
+
+  const used = new Set<Edge>();
+  const loops: ContourLoop[] = [];
+
+  for (const edge of edges) {
+    if (used.has(edge)) continue;
+
+    const loop: ContourLoop = [];
+    let current = edge;
+
+    while (!used.has(current)) {
+      used.add(current);
+      loop.push({ x: current.x1, y: current.y1 });
+
+      const nextKey = `${current.x2},${current.y2}`;
+      const candidates = edgesByStart.get(nextKey)?.filter(e => !used.has(e));
+      if (!candidates || candidates.length === 0) break;
+
+      if (candidates.length === 1) {
+        current = candidates[0];
+      } else {
+        const priority = turnPriority[current.dir];
+        let found = false;
+        for (const dir of priority) {
+          const match = candidates.find(c => c.dir === dir);
+          if (match) {
+            current = match;
+            found = true;
+            break;
+          }
+        }
+        if (!found) current = candidates[0];
+      }
+    }
+
+    if (loop.length >= 3) {
+      loops.push(loop);
+    }
+  }
+
+  // Step 4: Simplify - remove collinear midpoints
+  return loops.map(loop => {
+    const n = loop.length;
+    if (n < 3) return loop;
+
+    const simplified: ContourPoint[] = [];
+    for (let i = 0; i < n; i++) {
+      const prev = loop[(i - 1 + n) % n];
+      const curr = loop[i];
+      const next = loop[(i + 1) % n];
+
+      const dx1 = Math.sign(curr.x - prev.x);
+      const dy1 = Math.sign(curr.y - prev.y);
+      const dx2 = Math.sign(next.x - curr.x);
+      const dy2 = Math.sign(next.y - curr.y);
+
+      if (dx1 !== dx2 || dy1 !== dy2) {
+        simplified.push(curr);
+      }
+    }
+
+    return simplified.length >= 3 ? simplified : loop;
+  });
+}
+
+// Build a canvas path from contour loops with rounded convex corners
+function buildContourPath(
+  ctx: CanvasRenderingContext2D,
+  loops: ContourLoop[],
+  cornerRadius: number = 16
+): void {
+  ctx.beginPath();
+
+  for (const loop of loops) {
+    const n = loop.length;
+    if (n < 3) continue;
+
+    for (let i = 0; i < n; i++) {
+      const prev = loop[(i - 1 + n) % n];
+      const curr = loop[i];
+      const next = loop[(i + 1) % n];
+
+      // Cross product: positive = right turn = convex for CW loop
+      const cross = (curr.x - prev.x) * (next.y - curr.y) - (curr.y - prev.y) * (next.x - curr.x);
+      const isConvex = cross > 0;
+
+      if (isConvex && cornerRadius > 0) {
+        const dx1 = Math.sign(curr.x - prev.x);
+        const dy1 = Math.sign(curr.y - prev.y);
+        const dx2 = Math.sign(next.x - curr.x);
+        const dy2 = Math.sign(next.y - curr.y);
+
+        const t1x = curr.x - dx1 * cornerRadius;
+        const t1y = curr.y - dy1 * cornerRadius;
+        const t2x = curr.x + dx2 * cornerRadius;
+        const t2y = curr.y + dy2 * cornerRadius;
+
+        if (i === 0) {
+          ctx.moveTo(t1x, t1y);
+        } else {
+          ctx.lineTo(t1x, t1y);
+        }
+        ctx.quadraticCurveTo(curr.x, curr.y, t2x, t2y);
+      } else {
+        if (i === 0) {
+          ctx.moveTo(curr.x, curr.y);
+        } else {
+          ctx.lineTo(curr.x, curr.y);
+        }
+      }
+    }
+
+    ctx.closePath();
+  }
+}
+
+// Draw white highlights on top edges of the contour
+function drawContourTopHighlights(
+  ctx: CanvasRenderingContext2D,
+  loops: ContourLoop[],
+  cornerRadius: number
+): void {
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineWidth = 2.5;
+
+  for (const loop of loops) {
+    const n = loop.length;
+    for (let i = 0; i < n; i++) {
+      const prev = loop[(i - 1 + n) % n];
+      const curr = loop[i];
+      const next = loop[(i + 1) % n];
+      const nextNext = loop[(i + 2) % n];
+
+      // Top edge: horizontal segment going right (solid region is below)
+      if (next.x > curr.x && next.y === curr.y) {
+        const crossStart = (curr.x - prev.x) * (next.y - curr.y) - (curr.y - prev.y) * (next.x - curr.x);
+        const startRounded = crossStart > 0;
+
+        const crossEnd = (next.x - curr.x) * (nextNext.y - next.y) - (next.y - curr.y) * (nextNext.x - next.x);
+        const endRounded = crossEnd > 0;
+
+        const startX = curr.x + (startRounded ? cornerRadius : 0);
+        const endX = next.x - (endRounded ? cornerRadius : 0);
+
+        if (endX > startX) {
+          ctx.beginPath();
+          ctx.moveTo(startX, curr.y + 2);
+          ctx.lineTo(endX, curr.y + 2);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+}
+
 // Helper: Add frost gloss effect to top of wall group
 function addFrostGloss(
   ctx: CanvasRenderingContext2D,
@@ -177,7 +394,7 @@ function addFrostGloss(
 }
 
 // Helper: Check if a wall group is "simple" (can use unified blob rendering)
-function isSimpleGroup(
+export function isSimpleGroup(
   group: Array<{ x: number; y: number; width: number; height: number }>
 ): boolean {
   if (group.length === 1) return true;
@@ -200,109 +417,49 @@ function isSimpleGroup(
   return totalWallArea / boundingArea > 0.8;
 }
 
-// Helper: Render complex wall groups (crosses, frames) with individual wall rendering
+// Render complex wall groups using unified contour path (no internal seams)
 function renderComplexGroup(
   ctx: CanvasRenderingContext2D,
-  group: Array<{ x: number; y: number; width: number; height: number }>
+  group: Array<{ x: number; y: number; width: number; height: number }>,
+  precomputedContour?: ContourLoop[]
 ): void {
-  const threshold = 3;
+  const contour = precomputedContour ?? computeContour(group);
 
-  // Helper to check adjacency
-  const isAdjacent = (
-    w1: typeof group[0],
-    w2: typeof group[0],
-    edge: 'top' | 'bottom' | 'left' | 'right'
-  ): boolean => {
-    if (edge === 'top') {
-      return Math.abs(w2.y + w2.height - w1.y) < threshold &&
-             w2.x < w1.x + w1.width && w2.x + w2.width > w1.x;
-    } else if (edge === 'bottom') {
-      return Math.abs(w1.y + w1.height - w2.y) < threshold &&
-             w2.x < w1.x + w1.width && w2.x + w2.width > w1.x;
-    } else if (edge === 'left') {
-      return Math.abs(w2.x + w2.width - w1.x) < threshold &&
-             w2.y < w1.y + w1.height && w2.y + w2.height > w1.y;
-    } else {
-      return Math.abs(w1.x + w1.width - w2.x) < threshold &&
-             w2.y < w1.y + w1.height && w2.y + w2.height > w1.y;
-    }
-  };
+  // Build unified path from contour
+  buildContourPath(ctx, contour, 16);
 
-  // Render each wall with smart corner detection
-  for (const wall of group) {
-    const hasTop = group.some(w => w !== wall && isAdjacent(wall, w, 'top'));
-    const hasBottom = group.some(w => w !== wall && isAdjacent(wall, w, 'bottom'));
-    const hasLeft = group.some(w => w !== wall && isAdjacent(wall, w, 'left'));
-    const hasRight = group.some(w => w !== wall && isAdjacent(wall, w, 'right'));
-
-    const r = 16;
-
-    ctx.beginPath();
-    ctx.moveTo(wall.x + (hasTop || hasLeft ? 0 : r), wall.y);
-    ctx.lineTo(wall.x + wall.width - (hasTop || hasRight ? 0 : r), wall.y);
-
-    if (!hasTop && !hasRight) {
-      ctx.quadraticCurveTo(wall.x + wall.width, wall.y, wall.x + wall.width, wall.y + r);
-    }
-
-    ctx.lineTo(wall.x + wall.width, wall.y + wall.height - (hasBottom || hasRight ? 0 : r));
-
-    if (!hasBottom && !hasRight) {
-      ctx.quadraticCurveTo(wall.x + wall.width, wall.y + wall.height, wall.x + wall.width - r, wall.y + wall.height);
-    }
-
-    ctx.lineTo(wall.x + (hasBottom || hasLeft ? 0 : r), wall.y + wall.height);
-
-    if (!hasBottom && !hasLeft) {
-      ctx.quadraticCurveTo(wall.x, wall.y + wall.height, wall.x, wall.y + wall.height - r);
-    }
-
-    ctx.lineTo(wall.x, wall.y + (hasTop || hasLeft ? 0 : r));
-
-    if (!hasTop && !hasLeft) {
-      ctx.quadraticCurveTo(wall.x, wall.y, wall.x + r, wall.y);
-    }
-
-    ctx.closePath();
-
-    // Gradient
-    const gradient = ctx.createLinearGradient(0, wall.y, 0, wall.y + wall.height);
-    gradient.addColorStop(0, '#f0f9ff');
-    gradient.addColorStop(0.4, '#d4ebf7');
-    gradient.addColorStop(1, '#b8dff0');
-    ctx.fillStyle = gradient;
-
-    // Shadow
-    ctx.shadowColor = 'rgba(100, 150, 200, 0.35)';
-    ctx.shadowBlur = 12;
-    ctx.shadowOffsetY = 3;
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    // Outline
-    ctx.strokeStyle = '#90caf9';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    // Top highlight if exposed
-    if (!hasTop) {
-      ctx.beginPath();
-      ctx.moveTo(wall.x + (hasLeft ? 0 : r), wall.y + 2);
-      ctx.lineTo(wall.x + wall.width - (hasRight ? 0 : r), wall.y + 2);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-    }
-  }
-
-  // Add enhancements to entire group
+  // Compute bounding box for gradient
   const minX = Math.min(...group.map(w => w.x));
   const minY = Math.min(...group.map(w => w.y));
   const maxX = Math.max(...group.map(w => w.x + w.width));
+  const maxY = Math.max(...group.map(w => w.y + w.height));
 
+  // Single gradient fill for entire shape
+  const gradient = ctx.createLinearGradient(0, minY, 0, maxY);
+  gradient.addColorStop(0, '#f0f9ff');
+  gradient.addColorStop(0.4, '#d4ebf7');
+  gradient.addColorStop(1, '#b8dff0');
+  ctx.fillStyle = gradient;
+
+  // Single shadow (no doubling at overlaps)
+  ctx.shadowColor = 'rgba(100, 150, 200, 0.35)';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 3;
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // Single outline stroke (no internal seams)
+  ctx.strokeStyle = '#90caf9';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Top edge highlights from contour
+  drawContourTopHighlights(ctx, contour, 16);
+
+  // Frost gloss and crystal stipple
   addFrostGloss(ctx, minX, minY, maxX);
   addCrystalStipple(ctx, group);
 }
@@ -341,12 +498,14 @@ function addCrystalStipple(
 export function drawWalls(
   ctx: CanvasRenderingContext2D,
   walls: Array<{ x: number; y: number; width: number; height: number }>,
-  cachedGroups?: Array<Array<{ x: number; y: number; width: number; height: number }>>
+  cachedGroups?: Array<Array<{ x: number; y: number; width: number; height: number }>>,
+  cachedContours?: Array<ContourLoop[] | null>
 ): void {
   // Use cached groups if provided, otherwise compute (expensive O(n^2))
   const groups = cachedGroups ?? groupConnectedWalls(walls);
 
-  for (const group of groups) {
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi];
     ctx.save();
 
     // Check if this is a simple or complex group
@@ -397,12 +556,32 @@ export function drawWalls(
       ctx.lineWidth = 2.5;
       ctx.stroke();
     } else {
-      // Complex group (crosses, frames): render each wall individually
-      renderComplexGroup(ctx, group);
+      // Complex group: use contour-based rendering (no internal seams)
+      const contour = cachedContours?.[gi] ?? undefined;
+      renderComplexGroup(ctx, group, contour);
     }
 
     ctx.restore();
   }
+}
+
+// Helper: draw animated flag fabric shape
+function drawFlagFabric(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  time: number
+): void {
+  const w1 = Math.sin(time * 4) * 3;
+  const w2 = Math.sin(time * 4 + 1.2) * 2.5;
+  const w3 = Math.sin(time * 4 + 2.4) * 2;
+
+  ctx.beginPath();
+  ctx.moveTo(x, y - 32);
+  ctx.quadraticCurveTo(x + 24 + w1, y - 30, x + 22 + w2, y - 26);
+  ctx.quadraticCurveTo(x + 20 - w1, y - 24, x + 22 + w3, y - 22);
+  ctx.quadraticCurveTo(x + 24 + w2, y - 18, x, y - 16);
+  ctx.closePath();
 }
 
 export function drawFlag(
@@ -410,7 +589,8 @@ export function drawFlag(
   x: number,
   y: number,
   team: Team,
-  dropped: boolean
+  dropped: boolean,
+  time: number = 0
 ): void {
   ctx.save();
 
@@ -428,14 +608,8 @@ export function drawFlag(
   ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
   ctx.fill();
 
-  // Draw flag fabric with wave pattern and gradient
-  ctx.beginPath();
-  ctx.moveTo(x, y - 32);
-  // Wave pattern on right edge
-  ctx.quadraticCurveTo(x + 24, y - 30, x + 22, y - 26);
-  ctx.quadraticCurveTo(x + 20, y - 24, x + 22, y - 22);
-  ctx.quadraticCurveTo(x + 24, y - 18, x, y - 16);
-  ctx.closePath();
+  // Draw flag fabric with animated wave pattern
+  drawFlagFabric(ctx, x, y, time);
 
   // Add vertical gradient (lighter at top, darker at bottom)
   const baseColor = team === "red" ? "#e53935" : "#1976d2";
@@ -459,7 +633,8 @@ export function drawGhostFlag(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  team: Team
+  team: Team,
+  time: number = 0
 ): void {
   ctx.save();
 
@@ -472,14 +647,8 @@ export function drawGhostFlag(
   ctx.globalAlpha = 0.2;
   ctx.stroke();
 
-  // Draw flag fabric with wave pattern (very transparent)
-  ctx.beginPath();
-  ctx.moveTo(x, y - 32);
-  // Wave pattern on right edge (same as regular flag)
-  ctx.quadraticCurveTo(x + 24, y - 30, x + 22, y - 26);
-  ctx.quadraticCurveTo(x + 20, y - 24, x + 22, y - 22);
-  ctx.quadraticCurveTo(x + 24, y - 18, x, y - 16);
-  ctx.closePath();
+  // Draw flag fabric with animated wave pattern (very transparent)
+  drawFlagFabric(ctx, x, y, time);
 
   // Fill with team color at very low opacity
   ctx.fillStyle = team === "red" ? "#e53935" : "#1976d2";
@@ -500,7 +669,8 @@ export function drawCarriedFlag(
   playerX: number,
   playerY: number,
   playerRadius: number,
-  team: Team
+  team: Team,
+  time: number = 0
 ): void {
   // Position flag on right shoulder (full size, not scaled)
   const flagX = playerX + 12; // Offset to right shoulder
@@ -514,14 +684,8 @@ export function drawCarriedFlag(
   ctx.lineWidth = 4;
   ctx.stroke();
 
-  // Draw flag fabric with wave pattern (same size as regular flag)
-  ctx.beginPath();
-  ctx.moveTo(flagX, flagBaseY - 32);
-  // Wave pattern on right edge (same as regular flag)
-  ctx.quadraticCurveTo(flagX + 24, flagBaseY - 30, flagX + 22, flagBaseY - 26);
-  ctx.quadraticCurveTo(flagX + 20, flagBaseY - 24, flagX + 22, flagBaseY - 22);
-  ctx.quadraticCurveTo(flagX + 24, flagBaseY - 18, flagX, flagBaseY - 16);
-  ctx.closePath();
+  // Draw flag fabric with animated wave pattern
+  drawFlagFabric(ctx, flagX, flagBaseY, time);
   ctx.fillStyle = team === "red" ? "#e53935" : "#1976d2";
   ctx.globalAlpha = 1;
   ctx.fill();
@@ -534,7 +698,8 @@ export function drawPlayer(
   ctx: CanvasRenderingContext2D,
   player: Player,
   playerRadius: number,
-  flags?: { red?: FlagState; blue?: FlagState }
+  flags?: { red?: FlagState; blue?: FlagState },
+  time: number = 0
 ): void {
   ctx.save();
 
@@ -578,7 +743,7 @@ export function drawPlayer(
   if (player.carryingFlag && flags) {
     const carriedFlag = flags[player.carryingFlag];
     if (carriedFlag && carriedFlag.carriedBy === player.id) {
-      drawCarriedFlag(ctx, player.x, player.y, playerRadius, player.carryingFlag);
+      drawCarriedFlag(ctx, player.x, player.y, playerRadius, player.carryingFlag, time);
     }
   }
 
