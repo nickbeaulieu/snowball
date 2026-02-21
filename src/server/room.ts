@@ -90,14 +90,62 @@ export class Room extends DurableObject<Env> {
     };
   }
 
+  // Check if a circle at (x, y) with given radius overlaps any wall
+  private collidesWall(x: number, y: number, radius: number): boolean {
+    for (const wall of this.currentMap.walls) {
+      if (
+        x + radius > wall.x &&
+        x - radius < wall.x + wall.width &&
+        y + radius > wall.y &&
+        y - radius < wall.y + wall.height
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Push a player out of any wall they overlap, along the axis of minimum penetration
+  private resolveWallPenetration(player: { x: number; y: number }): void {
+    for (const wall of this.currentMap.walls) {
+      if (
+        player.x + PLAYER_RADIUS > wall.x &&
+        player.x - PLAYER_RADIUS < wall.x + wall.width &&
+        player.y + PLAYER_RADIUS > wall.y &&
+        player.y - PLAYER_RADIUS < wall.y + wall.height
+      ) {
+        // Calculate penetration depth on each axis
+        const pushLeft = wall.x - (player.x + PLAYER_RADIUS);       // negative
+        const pushRight = wall.x + wall.width - (player.x - PLAYER_RADIUS); // positive
+        const pushUp = wall.y - (player.y + PLAYER_RADIUS);         // negative
+        const pushDown = wall.y + wall.height - (player.y - PLAYER_RADIUS); // positive
+
+        // Find the smallest absolute push to resolve the overlap
+        const minX = Math.abs(pushLeft) < Math.abs(pushRight) ? pushLeft : pushRight;
+        const minY = Math.abs(pushUp) < Math.abs(pushDown) ? pushUp : pushDown;
+
+        if (Math.abs(minX) < Math.abs(minY)) {
+          player.x += minX;
+        } else {
+          player.y += minY;
+        }
+      }
+    }
+  }
+
   // Helper method to get random spawn position within a team's spawn zone
   private getRandomSpawnPosition(spawnZone: SpawnZone): { x: number; y: number } {
-    const angle = Math.random() * Math.PI * 2;
-    const distance = Math.random() * spawnZone.radius;
-    return {
-      x: spawnZone.x + Math.cos(angle) * distance,
-      y: spawnZone.y + Math.sin(angle) * distance,
-    };
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.random() * spawnZone.radius;
+      const x = spawnZone.x + Math.cos(angle) * distance;
+      const y = spawnZone.y + Math.sin(angle) * distance;
+      if (!this.collidesWall(x, y, PLAYER_RADIUS)) {
+        return { x, y };
+      }
+    }
+    // Fallback to spawn zone center
+    return { x: spawnZone.x, y: spawnZone.y };
   }
 
   async fetch(req: Request) {
@@ -558,28 +606,11 @@ export class Room extends DurableObject<Env> {
         // Clamp to world bounds
         nextX = Math.max(0, Math.min(this.worldWidth, nextX));
         nextY = Math.max(0, Math.min(this.worldHeight, nextY));
-        // Simple AABB collision with walls
-        const radius = PLAYER_RADIUS; // player radius
-        const walls = this.currentMap.walls;
-        function collidesWall(x: number, y: number) {
-          for (const wall of walls) {
-            if (
-              x + radius > wall.x &&
-              x - radius < wall.x + wall.width &&
-              y + radius > wall.y &&
-              y - radius < wall.y + wall.height
-            ) {
-              return true;
-            }
-          }
-          return false;
-        }
-        // Try X move
-        if (!collidesWall(nextX, player.y)) {
+        // Wall collision (per-axis to allow wall sliding)
+        if (!this.collidesWall(nextX, player.y, PLAYER_RADIUS)) {
           player.x = nextX;
         }
-        // Try Y move
-        if (!collidesWall(player.x, nextY)) {
+        if (!this.collidesWall(player.x, nextY, PLAYER_RADIUS)) {
           player.y = nextY;
         }
 
@@ -752,6 +783,10 @@ export class Room extends DurableObject<Env> {
                 player.y += ny * separation;
                 other.x -= nx * separation;
                 other.y -= ny * separation;
+
+                // Ensure push didn't shove either player into a wall
+                this.resolveWallPenetration(player);
+                this.resolveWallPenetration(other);
               }
             }
           }
