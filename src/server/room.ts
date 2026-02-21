@@ -328,6 +328,7 @@ export class Room extends DurableObject<Env> {
     } else if (msg.type === "throw") {
       // Only allow throwing during playing phase
       if (this.phase !== "playing") return;
+      if (player.hit) return;
       // Throw a snowball in the given direction
       if (
         !msg.dir ||

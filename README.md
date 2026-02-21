@@ -1,8 +1,8 @@
 - limited snowball ammo
-- you cannot throw snowballs when frozen
 - running over your own teams flag returns it to base
 - getting stuck in the walls should never happen
 - stuck in "connecting to room" screen
+- on the lobby screen, the text is not visible since it's the same color as the background
 
 - Preview of map, or minimap
 

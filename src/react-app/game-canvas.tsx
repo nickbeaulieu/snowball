@@ -110,6 +110,7 @@ export function GameCanvas({
     lastThrowTimeRef.current = now;
     const player = predictedPlayerRef.current;
     if (!player) return;
+    if (player.hit) return;
     let dx = dirX;
     let dy = dirY;
     if (dx === undefined || dy === undefined) {
