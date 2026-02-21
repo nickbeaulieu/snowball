@@ -13,7 +13,7 @@ import {
   AMMO_RECHARGE_TIME,
 } from "../constants";
 
-import type { Player, ServerSnapshot, Snowball } from "../types";
+import type { Player, ServerSnapshot, Snowball, GameState, Particle } from "../types";
 import type { MapDefinition, Wall } from "../maps";
 
 import {
@@ -28,6 +28,13 @@ import {
   drawScoreDisplay,
   drawAmmoBar,
   drawCorpse,
+  drawParticles,
+  updateParticles,
+  createImpactParticles,
+  createCelebrationParticles,
+  createDeathParticles,
+  createDustParticles,
+  createRespawnParticles,
   groupConnectedWalls,
   computeContour,
   isSimpleGroup,
@@ -125,6 +132,11 @@ export function GameCanvas({
     vy: number;
   } | null>(null);
   const correctionStartTimeRef = useRef<number>(0);
+
+  // Particle system (client-only, no server communication)
+  const particlesRef = useRef<Particle[]>([]);
+  const prevSnapshotRef = useRef<GameState | null>(null);
+  const dustFrameCounter = useRef(0);
 
   const keysRef = useRef<Record<string, boolean>>({});
 
@@ -323,6 +335,51 @@ export function GameCanvas({
       pendingInputsRef.current = pendingInputsRef.current.filter(
         (i) => i.seq > me.lastProcessedInput,
       );
+
+      // --- Particle event detection (client-only, diff prev vs current snapshot) ---
+      const prev = prevSnapshotRef.current;
+      if (prev) {
+        for (const curr of msg.state.players) {
+          const prevP = prev.players.find((p) => p.id === curr.id);
+          if (!prevP) continue;
+
+          // Snowball hit: player just got stunned
+          if (!prevP.hit && curr.hit) {
+            particlesRef.current.push(
+              ...createImpactParticles(curr.x, curr.y, curr.vx ?? 0, curr.vy ?? 0),
+            );
+          }
+
+          // Death: player just died
+          if (!prevP.dead && curr.dead) {
+            particlesRef.current.push(
+              ...createDeathParticles(curr.deathX, curr.deathY, curr.team),
+            );
+          }
+
+          // Respawn: player was dead, now alive
+          if (prevP.dead && !curr.dead) {
+            particlesRef.current.push(
+              ...createRespawnParticles(curr.x, curr.y, curr.team),
+            );
+          }
+        }
+
+        // Flag capture: score increased
+        if (msg.state.scores.red > prev.scores.red) {
+          const base = mapData.teams.red.flagBase;
+          particlesRef.current.push(
+            ...createCelebrationParticles(base.x, base.y, "red"),
+          );
+        }
+        if (msg.state.scores.blue > prev.scores.blue) {
+          const base = mapData.teams.blue.flagBase;
+          particlesRef.current.push(
+            ...createCelebrationParticles(base.x, base.y, "blue"),
+          );
+        }
+      }
+      prevSnapshotRef.current = msg.state;
     };
 
     websocket.addEventListener("message", handleMessage);
@@ -724,6 +781,26 @@ export function GameCanvas({
 
       // Draw snowballs
       drawSnowballs(ctx, snowballs as Snowball[], SNOWBALL_RADIUS);
+
+      // --- Particle system (client-only) ---
+      // Snow dust for fast-moving players (throttled to every 3rd frame)
+      dustFrameCounter.current++;
+      if (dustFrameCounter.current >= 3) {
+        dustFrameCounter.current = 0;
+        for (const p of players as Player[]) {
+          if (p.dead) continue;
+          const speed = Math.hypot(p.vx ?? 0, p.vy ?? 0);
+          if (speed > 200) {
+            particlesRef.current.push(
+              ...createDustParticles(p.x, p.y, p.vx ?? 0, p.vy ?? 0),
+            );
+          }
+        }
+      }
+
+      // Update and render particles
+      particlesRef.current = updateParticles(particlesRef.current, 1 / 60);
+      drawParticles(ctx, particlesRef.current);
 
       // Draw score display (in screen space)
       ctx.restore();

@@ -1308,9 +1308,111 @@ export function updateParticles(
         ...p,
         x: p.x + p.vx * dt,
         y: p.y + p.vy * dt,
-        vy: p.vy + gravity * dt, // Apply gravity
+        vy: p.type === 'dust' ? p.vy : p.vy + gravity * dt,
         life: newLife
       };
     })
     .filter((p): p is Particle => p !== null); // Remove dead particles
+}
+
+// Death burst — team-colored explosion at death location
+export function createDeathParticles(
+  x: number,
+  y: number,
+  team: Team
+): Particle[] {
+  const particles: Particle[] = [];
+  const count = 20;
+  const now = Date.now();
+  const color = team === "red" ? "#e53935" : "#1976d2";
+
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+    const speed = 120 + Math.random() * 180;
+
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 80,
+      life: 1.0,
+      maxLife: 600,
+      size: 2 + Math.random() * 3,
+      color,
+      type: 'death',
+      createdAt: now
+    });
+  }
+
+  return particles;
+}
+
+// Snow dust — small puffs behind fast-moving players
+export function createDustParticles(
+  x: number,
+  y: number,
+  vx: number,
+  vy: number
+): Particle[] {
+  const particles: Particle[] = [];
+  const count = 2 + Math.floor(Math.random() * 2); // 2-3
+  const now = Date.now();
+  const speed = Math.hypot(vx, vy);
+  if (speed < 1) return particles;
+
+  // Spawn behind the player (opposite of velocity)
+  const nx = -vx / speed;
+  const ny = -vy / speed;
+
+  for (let i = 0; i < count; i++) {
+    const offset = 10 + Math.random() * 8;
+    const spread = (Math.random() - 0.5) * 40;
+
+    particles.push({
+      x: x + nx * offset + (-ny) * spread,
+      y: y + ny * offset + nx * spread,
+      vx: nx * (20 + Math.random() * 30),
+      vy: ny * (20 + Math.random() * 30) - 15,
+      life: 1.0,
+      maxLife: 200,
+      size: 1 + Math.random(),
+      color: 'rgba(255,255,255,0.6)',
+      type: 'dust',
+      createdAt: now
+    });
+  }
+
+  return particles;
+}
+
+// Respawn shimmer — team-colored particles at spawn location
+export function createRespawnParticles(
+  x: number,
+  y: number,
+  team: Team
+): Particle[] {
+  const particles: Particle[] = [];
+  const count = 15;
+  const now = Date.now();
+  const color = team === "red" ? "#ef9a9a" : "#90caf9"; // lighter team colors
+
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+    const speed = 80 + Math.random() * 120;
+
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 150,
+      life: 1.0,
+      maxLife: 500,
+      size: 2 + Math.random() * 2,
+      color,
+      type: 'respawn',
+      createdAt: now
+    });
+  }
+
+  return particles;
 }

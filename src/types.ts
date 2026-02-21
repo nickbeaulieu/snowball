@@ -65,7 +65,7 @@ export type Particle = {
   maxLife: number; // starting life in ms
   size: number;
   color: string;
-  type: 'impact' | 'celebration' | 'trail';
+  type: 'impact' | 'celebration' | 'trail' | 'death' | 'dust' | 'respawn';
   createdAt: number; // timestamp
 };
 
