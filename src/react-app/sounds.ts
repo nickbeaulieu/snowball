@@ -179,35 +179,42 @@ export function playThrowSound(volume = 1.0) {
   src.stop(now + dur);
 }
 
-/** Low-freq splat — snowball hitting another player. */
+/** Crunchy splat — snowball hitting another player. */
 export function playHitSound(volume = 1.0) {
   if (volume < 0.01) return;
-  playNoise(0.15, "lowpass", 600, 0.25 * volume);
-  playTone(90, 0.15, 0.15 * volume, undefined, 50);
+  const ctx = getCtx();
+  const now = ctx.currentTime;
+  playNoise(0.15, "lowpass", 600, 0.3 * volume, true);
+  playTone(90, 0.15, 0.15 * volume, now, 50, "triangle");
+  // Crackle layer
+  playNoise(0.08, "highpass", 1500, 0.1 * volume);
 }
 
-/** Emphasized splat for when YOU get hit. Always full volume. */
+/** Emphasized crunchy splat for when YOU get hit. Always full volume. */
 export function playLocalHitSound() {
   const ctx = getCtx();
   const now = ctx.currentTime;
-  playNoise(0.2, "lowpass", 600, 0.35);
-  playTone(90, 0.2, 0.25, now, 50);
-  playTone(50, 0.25, 0.2, now);
+  playNoise(0.2, "lowpass", 600, 0.4, true);
+  playTone(90, 0.2, 0.25, now, 50, "triangle");
+  playTone(50, 0.25, 0.2, now, undefined, "square");
+  playNoise(0.1, "highpass", 1500, 0.12);
 }
 
-/** Sharp click — snowball hitting a wall. */
+/** Gritty click — snowball hitting a wall. */
 export function playWallHitSound(volume = 1.0) {
   if (volume < 0.01) return;
-  playNoise(0.05, "bandpass", 3000, 0.25 * volume);
+  playNoise(0.05, "bandpass", 2500, 0.25 * volume, true);
+  playTone(200, 0.03, 0.1 * volume, undefined, 80, "square");
 }
 
-/** Descending sweep — player death. */
+/** Crunchy descending sweep — player death. */
 export function playDeathSound(volume = 1.0) {
   if (volume < 0.01) return;
   const ctx = getCtx();
   const now = ctx.currentTime;
-  playTone(600, 0.3, 0.3 * volume, now, 100);
-  playNoise(0.3, "lowpass", 400, 0.2 * volume);
+  playTone(600, 0.3, 0.25 * volume, now, 80, "sawtooth", 15);
+  playNoise(0.3, "lowpass", 500, 0.2 * volume, true);
+  playTone(150, 0.2, 0.15 * volume, now + 0.1, 60, "triangle");
 }
 
 /** Ascending sparkle arpeggio — player respawn. */
@@ -217,8 +224,10 @@ export function playRespawnSound(volume = 1.0) {
   const now = ctx.currentTime;
   const notes = [523, 659, 784, 1047]; // C5 E5 G5 C6
   for (let i = 0; i < notes.length; i++) {
-    playTone(notes[i], 0.12, 0.2 * volume, now + i * 0.08);
+    playTone(notes[i], 0.14, 0.18 * volume, now + i * 0.08, undefined, "triangle", 8);
   }
+  // Shimmer noise underneath
+  playNoise(0.4, "highpass", 3000, 0.06 * volume);
 }
 
 /** Ascending 2-note chime — flag picked up. */
@@ -226,8 +235,9 @@ export function playFlagPickupSound(volume = 1.0) {
   if (volume < 0.01) return;
   const ctx = getCtx();
   const now = ctx.currentTime;
-  playTone(523, 0.12, 0.3 * volume, now); // C5
-  playTone(659, 0.15, 0.3 * volume, now + 0.08); // E5
+  playTone(523, 0.14, 0.25 * volume, now, undefined, "triangle", 10);
+  playTone(659, 0.18, 0.25 * volume, now + 0.08, undefined, "triangle", 10);
+  playNoise(0.06, "highpass", 4000, 0.05 * volume);
 }
 
 /** Descending 2-note chime — flag dropped. */
@@ -235,14 +245,16 @@ export function playFlagDropSound(volume = 1.0) {
   if (volume < 0.01) return;
   const ctx = getCtx();
   const now = ctx.currentTime;
-  playTone(659, 0.12, 0.3 * volume, now); // E5
-  playTone(523, 0.15, 0.3 * volume, now + 0.08); // C5
+  playTone(659, 0.14, 0.25 * volume, now, undefined, "triangle", 10);
+  playTone(523, 0.18, 0.25 * volume, now + 0.08, undefined, "triangle", 10);
+  playNoise(0.06, "bandpass", 2000, 0.05 * volume);
 }
 
 /** Bright ping — flag returned to base. */
 export function playFlagReturnSound(volume = 1.0) {
   if (volume < 0.01) return;
-  playTone(880, 0.15, 0.3 * volume);
+  playTone(880, 0.18, 0.25 * volume, undefined, undefined, "triangle", 12);
+  playNoise(0.04, "highpass", 5000, 0.04 * volume);
 }
 
 /** Triumphant 3-note fanfare — flag captured / score! */
@@ -250,9 +262,11 @@ export function playFlagCaptureSound(volume = 1.0) {
   if (volume < 0.01) return;
   const ctx = getCtx();
   const now = ctx.currentTime;
-  playTone(523, 0.2, 0.35 * volume, now); // C5
-  playTone(659, 0.2, 0.35 * volume, now + 0.15); // E5
-  playTone(784, 0.3, 0.35 * volume, now + 0.3); // G5
+  playTone(523, 0.22, 0.3 * volume, now, undefined, "triangle", 12);
+  playTone(659, 0.22, 0.3 * volume, now + 0.15, undefined, "triangle", 12);
+  playTone(784, 0.35, 0.3 * volume, now + 0.3, undefined, "triangle", 12);
+  // Celebratory noise burst
+  playNoise(0.15, "highpass", 3000, 0.08 * volume);
 }
 
 /** 3 countdown beeps + higher "go". No spatial — always full volume. */
@@ -260,9 +274,9 @@ export function playGameStartSound() {
   const ctx = getCtx();
   const now = ctx.currentTime;
   for (let i = 0; i < 3; i++) {
-    playTone(440, 0.1, 0.3, now + i * 0.3);
+    playTone(440, 0.1, 0.25, now + i * 0.3, undefined, "square");
   }
-  playTone(880, 0.15, 0.35, now + 0.9);
+  playTone(880, 0.18, 0.3, now + 0.9, undefined, "triangle", 10);
 }
 
 /** Victory or defeat jingle. No spatial — always full volume. */
@@ -273,19 +287,14 @@ export function playGameOverSound(won: boolean) {
     // Major ascending: C4-E4-G4-C5
     const notes = [262, 330, 392, 523];
     for (let i = 0; i < notes.length; i++) {
-      playTone(notes[i], 0.2, 0.3, now + i * 0.15);
+      playTone(notes[i], 0.25, 0.25, now + i * 0.15, undefined, "triangle", 10);
     }
+    playNoise(0.3, "highpass", 3000, 0.05);
   } else {
     // Minor descending: C4-Ab3-F3
     const notes = [262, 208, 175];
     for (let i = 0; i < notes.length; i++) {
-      playTone(notes[i], 0.25, 0.25, now + i * 0.18);
+      playTone(notes[i], 0.3, 0.2, now + i * 0.18, undefined, "sawtooth", 15);
     }
   }
-}
-
-/** Very subtle pop — ammo recharged. */
-export function playAmmoRechargeSound(volume = 1.0) {
-  if (volume < 0.01) return;
-  playTone(1200, 0.05, 0.12 * volume);
 }
