@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="snow" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#d0e4f0"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e8f4ff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#a8d0f0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#3b82f6"/>
+  <!-- Glow -->
+  <circle cx="32" cy="32" r="28" fill="url(#glow)"/>
+  <!-- Snowball -->
+  <circle cx="32" cy="34" r="18" fill="url(#snow)" stroke="#b0c8dc" stroke-width="1"/>
+  <!-- Snow texture spots -->
+  <circle cx="25" cy="30" r="2.5" fill="#e4eef6" opacity="0.7"/>
+  <circle cx="38" cy="26" r="2" fill="#e4eef6" opacity="0.5"/>
+  <circle cx="34" cy="40" r="3" fill="#e4eef6" opacity="0.6"/>
+  <circle cx="22" cy="38" r="1.5" fill="#e4eef6" opacity="0.5"/>
+  <!-- Highlight -->
+  <ellipse cx="26" cy="24" rx="6" ry="4" fill="#ffffff" opacity="0.6" transform="rotate(-20 26 24)"/>
+  <!-- Motion lines -->
+  <line x1="12" y1="18" x2="6" y2="14" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+  <line x1="14" y1="24" x2="7" y2="22" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <line x1="13" y1="30" x2="8" y2="30" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+</svg>
