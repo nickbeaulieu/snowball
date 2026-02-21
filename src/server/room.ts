@@ -21,6 +21,7 @@ import {
   PLAYER_RADIUS,
   MAX_AMMO,
   AMMO_RECHARGE_TIME,
+  RESPAWN_TIME,
 } from "../constants";
 type ServerSnowball = {
   x: number;
@@ -231,6 +232,10 @@ export class Room extends DurableObject<Env> {
           lastSeen: Date.now(),
           // Clear any temporary states that shouldn't persist
           hit: false,
+          dead: false,
+          deadTime: 0,
+          deathX: 0,
+          deathY: 0,
           carryingFlag: undefined, // Flag already returned in onDisconnect
           ammo: MAX_AMMO,
           lastAmmoRechargeTime: 0,
@@ -275,6 +280,10 @@ export class Room extends DurableObject<Env> {
           nickname: undefined,
           hit: false,
           hitTime: 0,
+          dead: false,
+          deadTime: 0,
+          deathX: 0,
+          deathY: 0,
           team,
           ammo: MAX_AMMO,
           lastAmmoRechargeTime: 0,
@@ -408,7 +417,7 @@ export class Room extends DurableObject<Env> {
     } else if (msg.type === "throw") {
       // Only allow throwing during playing phase
       if (this.phase !== "playing") return;
-      if (player.hit) return;
+      if (player.hit || player.dead) return;
       if (player.ammo <= 0) return;
       // Throw a snowball in the given direction
       if (
@@ -590,8 +599,8 @@ export class Room extends DurableObject<Env> {
 
       // Apply momentum-based movement
       for (const player of this.players.values()) {
-        if (player.hit) {
-          // Freeze movement and input while hit
+        if (player.hit || player.dead) {
+          // Freeze movement and input while hit or dead
           player.vx = 0;
           player.vy = 0;
           continue;
@@ -736,15 +745,15 @@ export class Room extends DurableObject<Env> {
           }
         }
 
-        // 3. Player collision: Flag carrier "pops" and flag returns to base
+        // 3. Player collision: Flag carrier dies (corpse + respawn timer), flag returns to base
         for (const other of this.players.values()) {
-          if (other.id !== player.id && other.team !== player.team) {
+          if (other.id !== player.id && other.team !== player.team && !other.dead) {
             const pdx = player.x - other.x;
             const pdy = player.y - other.y;
             const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
 
             if (pdist < PLAYER_RADIUS * 2) {
-              // If both players have flags, both "pop" and flags return to base
+              // If both players have flags, both die and flags return to base
               if (player.carryingFlag && other.carryingFlag) {
                 const playerFlagTeam = player.carryingFlag;
                 const otherFlagTeam = other.carryingFlag;
@@ -763,22 +772,24 @@ export class Room extends DurableObject<Env> {
                 this.flags[otherFlagTeam].x = this.currentMap.teams[otherFlagTeam].flagBase.x;
                 this.flags[otherFlagTeam].y = this.currentMap.teams[otherFlagTeam].flagBase.y;
 
-                // Respawn both players
-                const playerSpawn = this.getRandomSpawnPosition(this.currentMap.teams[player.team].spawnZone);
-                player.x = playerSpawn.x;
-                player.y = playerSpawn.y;
+                // Kill both players (corpse at current position, respawn after timer)
+                player.dead = true;
+                player.deadTime = now;
+                player.deathX = player.x;
+                player.deathY = player.y;
                 player.vx = 0;
                 player.vy = 0;
                 player.carryingFlag = undefined;
 
-                const otherSpawn = this.getRandomSpawnPosition(this.currentMap.teams[other.team].spawnZone);
-                other.x = otherSpawn.x;
-                other.y = otherSpawn.y;
+                other.dead = true;
+                other.deadTime = now;
+                other.deathX = other.x;
+                other.deathY = other.y;
                 other.vx = 0;
                 other.vy = 0;
                 other.carryingFlag = undefined;
               } else if (other.carryingFlag) {
-                // If opponent has a flag, they "pop" and flag returns to base
+                // If opponent has a flag, they die and flag returns to base
                 const flagTeam = other.carryingFlag;
                 this.flags[flagTeam].carriedBy = undefined;
                 this.flags[flagTeam].atBase = true;
@@ -786,15 +797,16 @@ export class Room extends DurableObject<Env> {
                 this.flags[flagTeam].x = this.currentMap.teams[flagTeam].flagBase.x;
                 this.flags[flagTeam].y = this.currentMap.teams[flagTeam].flagBase.y;
 
-                // Respawn the opponent
-                const otherSpawn = this.getRandomSpawnPosition(this.currentMap.teams[other.team].spawnZone);
-                other.x = otherSpawn.x;
-                other.y = otherSpawn.y;
+                // Kill the opponent (corpse stays at collision position)
+                other.dead = true;
+                other.deadTime = now;
+                other.deathX = other.x;
+                other.deathY = other.y;
                 other.vx = 0;
                 other.vy = 0;
                 other.carryingFlag = undefined;
               } else if (player.carryingFlag) {
-                // If current player has a flag, they "pop" and flag returns to base
+                // If current player has a flag, they die and flag returns to base
                 const flagTeam = player.carryingFlag;
                 this.flags[flagTeam].carriedBy = undefined;
                 this.flags[flagTeam].atBase = true;
@@ -802,10 +814,11 @@ export class Room extends DurableObject<Env> {
                 this.flags[flagTeam].x = this.currentMap.teams[flagTeam].flagBase.x;
                 this.flags[flagTeam].y = this.currentMap.teams[flagTeam].flagBase.y;
 
-                // Respawn the current player
-                const playerSpawn = this.getRandomSpawnPosition(this.currentMap.teams[player.team].spawnZone);
-                player.x = playerSpawn.x;
-                player.y = playerSpawn.y;
+                // Kill the current player (corpse stays at collision position)
+                player.dead = true;
+                player.deadTime = now;
+                player.deathX = player.x;
+                player.deathY = player.y;
                 player.vx = 0;
                 player.vy = 0;
                 player.carryingFlag = undefined;
@@ -865,6 +878,7 @@ export class Room extends DurableObject<Env> {
         if (now - s.createdAt >= 50) {
           for (const player of this.players.values()) {
             if (player.id === s.owner) continue;
+            if (player.dead) continue; // Snowballs pass through corpses
             const dx = player.x - s.x;
             const dy = player.y - s.y;
             if (dx * dx + dy * dy < (PLAYER_RADIUS + SNOWBALL_RADIUS) ** 2) {
@@ -882,6 +896,22 @@ export class Room extends DurableObject<Env> {
       for (const player of this.players.values()) {
         if (player.hit && now - player.hitTime > 500) {
           player.hit = false;
+        }
+      }
+
+      // Respawn dead players after RESPAWN_TIME
+      for (const player of this.players.values()) {
+        if (player.dead && now - player.deadTime > RESPAWN_TIME) {
+          player.dead = false;
+          const spawnPos = this.getRandomSpawnPosition(
+            this.currentMap.teams[player.team].spawnZone
+          );
+          player.x = spawnPos.x;
+          player.y = spawnPos.y;
+          player.vx = 0;
+          player.vy = 0;
+          player.ammo = MAX_AMMO;
+          player.lastAmmoRechargeTime = now;
         }
       }
 
@@ -992,6 +1022,10 @@ export class Room extends DurableObject<Env> {
         player.vx = 0;
         player.vy = 0;
         player.hit = false;
+        player.dead = false;
+        player.deadTime = 0;
+        player.deathX = 0;
+        player.deathY = 0;
         player.carryingFlag = undefined;
       }
     }

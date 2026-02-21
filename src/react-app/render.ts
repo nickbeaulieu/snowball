@@ -759,6 +759,57 @@ export function drawPlayerNickname(
   ctx.restore();
 }
 
+export function drawCorpse(
+  ctx: CanvasRenderingContext2D,
+  deathX: number,
+  deathY: number,
+  team: Team,
+  playerRadius: number,
+  deadTime: number,
+): void {
+  const elapsed = Date.now() - deadTime;
+  const fadeProgress = Math.min(elapsed / 3000, 1);
+
+  ctx.save();
+  ctx.globalAlpha = 0.6 - fadeProgress * 0.4; // Fade from 0.6 to 0.2
+
+  // Body circle (same shape as alive player, desaturated color)
+  const corpseColor = team === "red" ? "#d4a0a0" : "#a0b8d4";
+  const corpseStroke = team === "red" ? "#b08080" : "#8098b0";
+  ctx.beginPath();
+  ctx.arc(deathX, deathY, playerRadius * 0.95, 0, Math.PI * 2);
+  ctx.fillStyle = corpseColor;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = corpseStroke;
+  ctx.stroke();
+
+  // Head
+  const headY = deathY - playerRadius * 0.55;
+  const headRadius = playerRadius * 0.45;
+  ctx.beginPath();
+  ctx.arc(deathX, headY, headRadius, 0, Math.PI * 2);
+  ctx.fillStyle = "#f5f0d0";
+  ctx.fill();
+  ctx.strokeStyle = "#bdbdbd";
+  ctx.stroke();
+
+  // Hollow circle eyes (stroked, not filled — distinguishes from stun X-eyes)
+  const eyeOffsetX = headRadius * 0.35;
+  const eyeY = headY - headRadius * 0.1;
+  const eyeRadius = 3;
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(deathX - eyeOffsetX, eyeY, eyeRadius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(deathX + eyeOffsetX, eyeY, eyeRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 export function drawSnowballs(
   ctx: CanvasRenderingContext2D,
   snowballs: Snowball[],

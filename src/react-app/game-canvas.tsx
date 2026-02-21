@@ -27,6 +27,7 @@ import {
   drawSnowballs,
   drawScoreDisplay,
   drawAmmoBar,
+  drawCorpse,
   groupConnectedWalls,
 } from "./render";
 
@@ -135,7 +136,7 @@ export function GameCanvas({
     lastThrowTimeRef.current = now;
     const player = predictedPlayerRef.current;
     if (!player) return;
-    if (player.hit) return;
+    if (player.hit || player.dead) return;
     if (player.ammo <= 0) return;
     let dx = dirX;
     let dy = dirY;
@@ -263,6 +264,10 @@ export function GameCanvas({
         predictedPlayerRef.current.carryingFlag = me.carryingFlag;
         predictedPlayerRef.current.hit = me.hit;
         predictedPlayerRef.current.hitTime = me.hitTime;
+        predictedPlayerRef.current.dead = me.dead;
+        predictedPlayerRef.current.deadTime = me.deadTime;
+        predictedPlayerRef.current.deathX = me.deathX;
+        predictedPlayerRef.current.deathY = me.deathY;
         predictedPlayerRef.current.ammo = me.ammo;
         predictedPlayerRef.current.lastAmmoRechargeTime = me.lastAmmoRechargeTime;
         const dx = me.x - predictedPlayerRef.current.x;
@@ -339,6 +344,7 @@ export function GameCanvas({
 
   function applyInputPrediction(input: InputMsg) {
     if (!predictedPlayerRef.current) return;
+    if (predictedPlayerRef.current.dead) return;
 
     // Initialize velocity if missing
     if (predictedPlayerRef.current.vx === undefined)
@@ -638,10 +644,14 @@ export function GameCanvas({
         }
       }
 
-      // Draw all players (including local)
+      // Draw all players (including local) — dead players render as corpses
       for (const p of players as Player[]) {
-        drawPlayer(ctx, p, PLAYER_RADIUS, flags);
-        drawPlayerNickname(ctx, p, PLAYER_RADIUS);
+        if (p.dead) {
+          drawCorpse(ctx, p.deathX, p.deathY, p.team, PLAYER_RADIUS, p.deadTime);
+        } else {
+          drawPlayer(ctx, p, PLAYER_RADIUS, flags);
+          drawPlayerNickname(ctx, p, PLAYER_RADIUS);
+        }
       }
 
       // Blend both position and velocity for smooth correction (local prediction)

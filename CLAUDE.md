@@ -40,6 +40,10 @@ Map definitions live in `src/maps/`. Each map defines dimensions, wall positions
 
 Grid-aligned 40px walls, 20px player radius, 30 FPS tick rate. Player movement uses acceleration (1500 px/s²) + friction (0.3) with 300 px/s max speed. Snowballs travel at 500 px/s. Max 4 ammo with 600ms recharge.
 
+### Player Liveness (room.ts)
+
+The game loop disconnects players whose `lastSeen` exceeds 5 seconds (stale-player check). `lastSeen` only updates when the client sends a WebSocket message. Phase transitions (e.g. lobby → playing) must reset `lastSeen` for all players, otherwise idle lobby players get kicked immediately.
+
 ### Client-Side Prediction (game-canvas.tsx)
 
 Maintains `predictedPlayerRef` separate from server state. Reapplies unacknowledged inputs on each server snapshot. When server and predicted positions diverge beyond 50px, applies smooth blended correction on both position and velocity.

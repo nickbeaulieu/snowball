@@ -15,3 +15,4 @@ export const CORRECTION_DURATION = 0.12; // seconds (120ms)
 export const CORRECTION_THRESHOLD = 50; // pixels
 export const MAX_AMMO = 4;
 export const AMMO_RECHARGE_TIME = 600; // ms per snowball recharged
+export const RESPAWN_TIME = 3000; // ms - death respawn timer for flag carriers

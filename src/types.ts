@@ -15,6 +15,10 @@ export type Player = {
   nickname?: string;
   hit: boolean;
   hitTime: number;
+  dead: boolean;
+  deadTime: number;
+  deathX: number;
+  deathY: number;
   team: Team;
   carryingFlag?: Team; // which flag (red or blue) is being carried
   lastDropTime?: number; // timestamp of last flag drop (for cooldown)
