@@ -843,6 +843,21 @@ export function drawPlayer(
   const eyeOffsetX = headRadius * 0.35;
   const eyeY = headY - headRadius * 0.1;
 
+  // Direction-tracking highlight offset
+  let highlightDx: number;
+  let highlightDy: number;
+  if (speed > 30) {
+    const nx = (player.vx ?? 0) / speed;
+    const ny = (player.vy ?? 0) / speed;
+    highlightDx = nx * 1.2;
+    highlightDy = ny * 1.2;
+  } else {
+    // Idle: gentle circular drift ("looking around")
+    const t = Date.now() / 2000;
+    highlightDx = Math.cos(t) * 0.6;
+    highlightDy = Math.sin(t) * 0.6;
+  }
+
   if (player.hit) {
     // Stunned: X eyes
     const drawX = (cx: number, cy: number, size: number) => {
@@ -857,43 +872,87 @@ export function drawPlayer(
     };
     drawX(headX - eyeOffsetX, eyeY, 3);
     drawX(headX + eyeOffsetX, eyeY, 3);
-  } else if (speed > 200) {
-    // Moving fast: squinted eyes (effort)
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(headX - eyeOffsetX - 3, eyeY);
-    ctx.lineTo(headX - eyeOffsetX + 3, eyeY);
-    ctx.moveTo(headX + eyeOffsetX - 3, eyeY);
-    ctx.lineTo(headX + eyeOffsetX + 3, eyeY);
-    ctx.stroke();
-  } else if (player.carryingFlag) {
-    // Carrying flag: determined eyes (filled circles, slightly larger)
-    ctx.fillStyle = "#333";
-    ctx.beginPath();
-    ctx.arc(headX - eyeOffsetX, eyeY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(headX + eyeOffsetX, eyeY, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    // Normal: round eyes with highlights
-    ctx.fillStyle = "#333";
-    ctx.beginPath();
-    ctx.arc(headX - eyeOffsetX, eyeY, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(headX + eyeOffsetX, eyeY, 3, 0, Math.PI * 2);
-    ctx.fill();
+  } else if (speed > 200 && player.carryingFlag) {
+    // Running fast + carrying flag: squinted sparkle eyes
+    const nx = (player.vx ?? 0) / speed;
+    const ny = (player.vy ?? 0) / speed;
+    const sparkleT = Date.now() / 300;
+    const sparkle = (Math.sin(sparkleT) + 1) / 2;
+    const hlRadius = 0.8 + sparkle * 0.6;
 
-    // Eye highlights
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(headX - eyeOffsetX + 1, eyeY - 1, 1.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(headX + eyeOffsetX + 1, eyeY - 1, 1.2, 0, Math.PI * 2);
-    ctx.fill();
+    for (const side of [-1, 1]) {
+      const ex = headX + side * eyeOffsetX;
+      ctx.fillStyle = "#333";
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeY, 3.5, 3.5 * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(ex + nx * 1.0, eyeY + ny * 0.35, hlRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (player.carryingFlag) {
+    // Carrying flag: sparkle/gleam eyes with direction tracking
+    const sparkleT = Date.now() / 300;
+    const sparkle = (Math.sin(sparkleT) + 1) / 2;
+    const hlRadius = 1.0 + sparkle * 0.8;
+
+    for (const side of [-1, 1]) {
+      const ex = headX + side * eyeOffsetX;
+      ctx.fillStyle = "#333";
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      const hlx = ex + highlightDx;
+      const hly = eyeY + highlightDy;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(hlx, hly, hlRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // At peak sparkle, draw tiny cross-star rays
+      if (sparkle > 0.7) {
+        const rayLen = ((sparkle - 0.7) / 0.3) * 1.5;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(hlx, hly - rayLen);
+        ctx.lineTo(hlx, hly + rayLen);
+        ctx.moveTo(hlx - rayLen, hly);
+        ctx.lineTo(hlx + rayLen, hly);
+        ctx.stroke();
+      }
+    }
+  } else if (speed > 200) {
+    // Moving fast: squinted directional eyes (ellipses with highlight)
+    const nx = (player.vx ?? 0) / speed;
+    const ny = (player.vy ?? 0) / speed;
+
+    for (const side of [-1, 1]) {
+      const ex = headX + side * eyeOffsetX;
+      ctx.fillStyle = "#333";
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeY, 3, 3 * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(ex + nx * 1.0, eyeY + ny * 0.4, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // Normal: round eyes with direction-tracking highlights
+    for (const side of [-1, 1]) {
+      const ex = headX + side * eyeOffsetX;
+      ctx.fillStyle = "#333";
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(ex + highlightDx, eyeY + highlightDy, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   ctx.restore(); // Restore from body lean
