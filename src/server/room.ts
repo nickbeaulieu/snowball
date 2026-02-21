@@ -558,8 +558,13 @@ export class Room extends DurableObject<Env> {
       }
       this.broadcastLobbyState();
     } else if (msg.type === "start_game") {
-      // Start the game (host only)
+      // Start the game (host only, majority must be ready)
       if (this.phase !== "lobby" || playerId !== this.hostId) return;
+      const others = [...this.readyStates.values()].filter(
+        (rs) => rs.playerId !== this.hostId
+      );
+      const ready = others.filter((rs) => rs.isReady).length;
+      if (others.length > 0 && ready <= others.length / 2) return;
       this.startGame();
     } else if (msg.type === "reset_game") {
       // Reset game back to lobby (host only)

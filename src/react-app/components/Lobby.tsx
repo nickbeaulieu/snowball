@@ -29,10 +29,13 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
   const myReadyState = lobbyState.readyStates.find(
     (rs) => rs.playerId === clientId
   );
-  // Check if all non-host players are ready (host doesn't need to be ready)
-  const allOthersReady = lobbyState.readyStates
-    .filter((rs) => rs.playerId !== lobbyState.hostId)
-    .every((rs) => rs.isReady);
+  // Check if majority (>50%) of non-host players are ready
+  const otherPlayers = lobbyState.readyStates.filter(
+    (rs) => rs.playerId !== lobbyState.hostId
+  );
+  const readyCount = otherPlayers.filter((rs) => rs.isReady).length;
+  const majorityReady =
+    otherPlayers.length === 0 || readyCount > otherPlayers.length / 2;
 
   const sendMessage = (msg: unknown) => {
     if (websocket.readyState === WebSocket.OPEN) {
@@ -474,33 +477,28 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
           {isHost ? (
             <button
               onClick={handleStartGame}
-              disabled={!allOthersReady && lobbyState.readyStates.length > 1}
+              disabled={!majorityReady}
               style={{
                 width: "100%",
                 padding: "1rem",
                 fontSize: "1.25rem",
                 fontWeight: "600",
                 color: "white",
-                background:
-                  allOthersReady || lobbyState.readyStates.length === 1
-                    ? "linear-gradient(to bottom, #10b981, #059669)"
-                    : "#cbd5e1",
+                background: majorityReady
+                  ? "linear-gradient(to bottom, #10b981, #059669)"
+                  : "#cbd5e1",
                 border: "none",
                 borderRadius: "0.5rem",
-                cursor:
-                  allOthersReady || lobbyState.readyStates.length === 1
-                    ? "pointer"
-                    : "not-allowed",
-                boxShadow:
-                  allOthersReady || lobbyState.readyStates.length === 1
-                    ? "0 4px 12px rgba(5, 150, 105, 0.3)"
-                    : "none",
+                cursor: majorityReady ? "pointer" : "not-allowed",
+                boxShadow: majorityReady
+                  ? "0 4px 12px rgba(5, 150, 105, 0.3)"
+                  : "none",
                 transition: "all 0.2s",
               }}
             >
-              {allOthersReady || lobbyState.readyStates.length === 1
+              {majorityReady
                 ? "Start Game"
-                : "Waiting for players to ready up..."}
+                : `Waiting for players to ready up (${readyCount}/${otherPlayers.length})...`}
             </button>
           ) : (
             <button
