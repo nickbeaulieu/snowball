@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { HomepageBackground } from "../homepage-background";
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -35,19 +36,24 @@ export function HomePage() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(to bottom, #e0f2ff, #bae6fd)",
         fontFamily: "system-ui, sans-serif",
       }}
     >
+      <HomepageBackground />
       <div
         style={{
           textAlign: "center",
           padding: "2rem",
-          background: "white",
+          background: "rgba(255, 255, 255, 0.8)",
+          backdropFilter: "blur(16px) saturate(180%)",
+          WebkitBackdropFilter: "blur(16px) saturate(180%)",
           borderRadius: "1rem",
-          boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+          border: "1px solid rgba(255, 255, 255, 0.5)",
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
           maxWidth: "400px",
           width: "100%",
+          position: "relative",
+          zIndex: 1,
         }}
       >
         <h1
@@ -203,8 +209,10 @@ export function HomePage() {
         style={{
           position: "absolute",
           bottom: "1rem",
-          color: "#64748b",
+          color: "rgba(255, 255, 255, 0.9)",
           fontSize: "0.875rem",
+          textShadow: "0 1px 3px rgba(0, 0, 0, 0.5)",
+          zIndex: 1,
         }}
       >
         WASD to move · Click to throw · Spacebar to drop flag
