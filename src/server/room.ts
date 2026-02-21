@@ -19,6 +19,8 @@ import {
   SNOWBALL_RADIUS,
   SNOWBALL_LIFETIME,
   PLAYER_RADIUS,
+  MAX_AMMO,
+  AMMO_RECHARGE_TIME,
 } from "../constants";
 type Snowball = {
   x: number;
@@ -177,6 +179,8 @@ export class Room extends DurableObject<Env> {
           // Clear any temporary states that shouldn't persist
           hit: false,
           carryingFlag: undefined, // Flag already returned in onDisconnect
+          ammo: MAX_AMMO,
+          lastAmmoRechargeTime: 0,
         };
         this.players.set(playerId, restoredPlayer);
         this.disconnectedPlayers.delete(playerId);
@@ -219,6 +223,8 @@ export class Room extends DurableObject<Env> {
           hit: false,
           hitTime: 0,
           team,
+          ammo: MAX_AMMO,
+          lastAmmoRechargeTime: 0,
         });
 
         // Initialize ready state for new player
@@ -329,6 +335,7 @@ export class Room extends DurableObject<Env> {
       // Only allow throwing during playing phase
       if (this.phase !== "playing") return;
       if (player.hit) return;
+      if (player.ammo <= 0) return;
       // Throw a snowball in the given direction
       if (
         !msg.dir ||
@@ -339,6 +346,7 @@ export class Room extends DurableObject<Env> {
       // Limit throw rate (simple cooldown)
       if (!player.lastThrowTime || Date.now() - player.lastThrowTime > 200) {
         player.lastThrowTime = Date.now();
+        player.ammo--;
         const len = Math.hypot(msg.dir.x, msg.dir.y);
         if (len === 0) return;
         const dx = msg.dir.x / len;
@@ -787,6 +795,19 @@ export class Room extends DurableObject<Env> {
       for (const player of this.players.values()) {
         if (player.hit && now - player.hitTime > 500) {
           player.hit = false;
+        }
+      }
+
+      // Recharge ammo
+      for (const player of this.players.values()) {
+        if (player.ammo < MAX_AMMO) {
+          if (!player.lastAmmoRechargeTime) player.lastAmmoRechargeTime = now;
+          if (now - player.lastAmmoRechargeTime >= AMMO_RECHARGE_TIME) {
+            player.ammo++;
+            player.lastAmmoRechargeTime = now;
+          }
+        } else {
+          player.lastAmmoRechargeTime = now;
         }
       }
 

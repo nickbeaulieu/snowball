@@ -18,6 +18,8 @@ export type Player = {
   team: Team;
   carryingFlag?: Team; // which flag (red or blue) is being carried
   lastDropTime?: number; // timestamp of last flag drop (for cooldown)
+  ammo: number;
+  lastAmmoRechargeTime: number;
 };
 
 export type FlagState = {

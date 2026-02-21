@@ -10,6 +10,8 @@ import {
   SNOWBALL_RADIUS,
   PLAYER_RADIUS,
   GRID_SIZE,
+  MAX_AMMO,
+  AMMO_RECHARGE_TIME,
 } from "../constants";
 
 import type { Player, ServerSnapshot, Snowball } from "../types";
@@ -25,6 +27,7 @@ import {
   drawPlayerNickname,
   drawSnowballs,
   drawScoreDisplay,
+  drawAmmoBar,
 } from "./render";
 
 let inputSeq = 0;
@@ -111,6 +114,7 @@ export function GameCanvas({
     const player = predictedPlayerRef.current;
     if (!player) return;
     if (player.hit) return;
+    if (player.ammo <= 0) return;
     let dx = dirX;
     let dy = dirY;
     if (dx === undefined || dy === undefined) {
@@ -231,6 +235,8 @@ export function GameCanvas({
         predictedPlayerRef.current.carryingFlag = me.carryingFlag;
         predictedPlayerRef.current.hit = me.hit;
         predictedPlayerRef.current.hitTime = me.hitTime;
+        predictedPlayerRef.current.ammo = me.ammo;
+        predictedPlayerRef.current.lastAmmoRechargeTime = me.lastAmmoRechargeTime;
         const dx = me.x - predictedPlayerRef.current.x;
         const dy = me.y - predictedPlayerRef.current.y;
         const dvx = (me.vx ?? 0) - (predictedPlayerRef.current.vx ?? 0);
@@ -625,6 +631,20 @@ export function GameCanvas({
         scores?.blue ?? 0,
         timeRemainingRef.current
       );
+
+      // Draw ammo recharge bar (only visible when not full)
+      const pred = predictedPlayerRef.current;
+      if (pred) {
+        drawAmmoBar(
+          ctx,
+          canvas.width / dprScore,
+          canvas.height / dprScore,
+          pred.ammo,
+          pred.lastAmmoRechargeTime,
+          MAX_AMMO,
+          AMMO_RECHARGE_TIME,
+        );
+      }
 
       rafId = requestAnimationFrame(draw);
     };

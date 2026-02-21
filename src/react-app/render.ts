@@ -928,6 +928,67 @@ export function drawScoreDisplay(
   ctx.restore();
 }
 
+export function drawAmmoBar(
+  ctx: CanvasRenderingContext2D,
+  _canvasWidth: number,
+  canvasHeight: number,
+  ammo: number,
+  lastAmmoRechargeTime: number,
+  maxAmmo: number,
+  rechargeTime: number,
+): void {
+  if (ammo >= maxAmmo) return;
+
+  ctx.save();
+
+  // Smooth fill: interpolate partial recharge progress
+  const now = Date.now();
+  const partial = lastAmmoRechargeTime
+    ? Math.min((now - lastAmmoRechargeTime) / rechargeTime, 1)
+    : 0;
+  const fillFraction = (ammo + partial) / maxAmmo;
+
+  const barWidth = 120;
+  const barHeight = 8;
+  const x = 20;
+  const y = canvasHeight - 50;
+  const radius = 4;
+
+  // Drop shadow for contrast against any background
+  ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 2;
+
+  // Background
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.beginPath();
+  ctx.roundRect(x, y, barWidth, barHeight, radius);
+  ctx.fill();
+
+  // Reset shadow before fill/outline
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // Fill
+  const fillWidth = barWidth * fillFraction;
+  if (fillWidth > 0) {
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.roundRect(x, y, fillWidth, barHeight, radius);
+    ctx.fill();
+  }
+
+  // Outline
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(x, y, barWidth, barHeight, radius);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // Particle system rendering
 export function drawParticles(
   ctx: CanvasRenderingContext2D,
