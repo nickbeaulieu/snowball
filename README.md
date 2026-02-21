@@ -1,4 +1,3 @@
-- Arrow-key navigation
 - limited snowball ammo
 - you cannot throw snowballs when frozen
 - running over your own teams flag returns it to base

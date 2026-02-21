@@ -364,10 +364,10 @@ export function GameCanvas({
 
       const input: InputMsg = {
         seq: inputSeq++,
-        up: !!keys["w"],
-        down: !!keys["s"],
-        left: !!keys["a"],
-        right: !!keys["d"],
+        up: !!keys["w"] || !!keys["ArrowUp"],
+        down: !!keys["s"] || !!keys["ArrowDown"],
+        left: !!keys["a"] || !!keys["ArrowLeft"],
+        right: !!keys["d"] || !!keys["ArrowRight"],
       };
 
       websocket.send(JSON.stringify({ type: "input", ...input }));
