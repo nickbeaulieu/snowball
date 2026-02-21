@@ -15,7 +15,7 @@ import {
 } from "../constants";
 
 import type { Player, ServerSnapshot, Snowball } from "../types";
-import type { MapDefinition } from "../maps";
+import type { MapDefinition, Wall } from "../maps";
 
 import {
   drawVoidBackground,
@@ -40,6 +40,25 @@ type InputMsg = {
 };
 
 // ...constants imported from ../constants
+
+function collidesWall(
+  x: number,
+  y: number,
+  radius: number,
+  walls: Wall[],
+): boolean {
+  for (const wall of walls) {
+    if (
+      x + radius > wall.x &&
+      x - radius < wall.x + wall.width &&
+      y + radius > wall.y &&
+      y - radius < wall.y + wall.height
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 type GameCanvasProps = {
   websocket: WebSocket;
@@ -274,7 +293,6 @@ export function GameCanvas({
         }
       }
 
-      // Reapply only the last unacknowledged input (to match server logic)
       // Reapply all unacknowledged inputs in order (to match server simulation)
       const unacked = pendingInputsRef.current.filter(
         (i) => i.seq > me.lastProcessedInput,
@@ -361,8 +379,53 @@ export function GameCanvas({
         (predictedPlayerRef.current.vy / speed) * MAX_SPEED;
     }
 
-    predictedPlayerRef.current.x += predictedPlayerRef.current.vx * DT;
-    predictedPlayerRef.current.y += predictedPlayerRef.current.vy * DT;
+    // Attempt move with wall collision (matches server logic in room.ts)
+    let nextX = predictedPlayerRef.current.x + predictedPlayerRef.current.vx * DT;
+    let nextY = predictedPlayerRef.current.y + predictedPlayerRef.current.vy * DT;
+
+    // Clamp to world bounds
+    nextX = Math.max(0, Math.min(mapData.width, nextX));
+    nextY = Math.max(0, Math.min(mapData.height, nextY));
+
+    // Per-axis wall collision (allows wall sliding, clamp to wall surface)
+    if (!collidesWall(nextX, predictedPlayerRef.current.y, PLAYER_RADIUS, mapData.walls)) {
+      predictedPlayerRef.current.x = nextX;
+    } else {
+      for (const wall of mapData.walls) {
+        if (
+          nextX + PLAYER_RADIUS > wall.x &&
+          nextX - PLAYER_RADIUS < wall.x + wall.width &&
+          predictedPlayerRef.current.y + PLAYER_RADIUS > wall.y &&
+          predictedPlayerRef.current.y - PLAYER_RADIUS < wall.y + wall.height
+        ) {
+          if (predictedPlayerRef.current.vx > 0) {
+            predictedPlayerRef.current.x = wall.x - PLAYER_RADIUS;
+          } else {
+            predictedPlayerRef.current.x = wall.x + wall.width + PLAYER_RADIUS;
+          }
+        }
+      }
+      predictedPlayerRef.current.vx = 0;
+    }
+    if (!collidesWall(predictedPlayerRef.current.x, nextY, PLAYER_RADIUS, mapData.walls)) {
+      predictedPlayerRef.current.y = nextY;
+    } else {
+      for (const wall of mapData.walls) {
+        if (
+          predictedPlayerRef.current.x + PLAYER_RADIUS > wall.x &&
+          predictedPlayerRef.current.x - PLAYER_RADIUS < wall.x + wall.width &&
+          nextY + PLAYER_RADIUS > wall.y &&
+          nextY - PLAYER_RADIUS < wall.y + wall.height
+        ) {
+          if (predictedPlayerRef.current.vy > 0) {
+            predictedPlayerRef.current.y = wall.y - PLAYER_RADIUS;
+          } else {
+            predictedPlayerRef.current.y = wall.y + wall.height + PLAYER_RADIUS;
+          }
+        }
+      }
+      predictedPlayerRef.current.vy = 0;
+    }
   }
 
   useEffect(() => {
@@ -527,7 +590,6 @@ export function GameCanvas({
       if (localPlayer) {
         camX = localPlayer.x - logicalWidth / 2;
         camY = localPlayer.y - logicalHeight / 2;
-        // Camera clamping removed - can now move freely
       }
 
       ctx.save();

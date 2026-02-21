@@ -606,12 +606,46 @@ export class Room extends DurableObject<Env> {
         // Clamp to world bounds
         nextX = Math.max(0, Math.min(this.worldWidth, nextX));
         nextY = Math.max(0, Math.min(this.worldHeight, nextY));
-        // Wall collision (per-axis to allow wall sliding)
+        // Wall collision (per-axis to allow wall sliding, clamp to wall surface)
         if (!this.collidesWall(nextX, player.y, PLAYER_RADIUS)) {
           player.x = nextX;
+        } else {
+          // Clamp to nearest wall surface along X axis
+          for (const wall of this.currentMap.walls) {
+            if (
+              nextX + PLAYER_RADIUS > wall.x &&
+              nextX - PLAYER_RADIUS < wall.x + wall.width &&
+              player.y + PLAYER_RADIUS > wall.y &&
+              player.y - PLAYER_RADIUS < wall.y + wall.height
+            ) {
+              if (player.vx > 0) {
+                player.x = wall.x - PLAYER_RADIUS;
+              } else {
+                player.x = wall.x + wall.width + PLAYER_RADIUS;
+              }
+            }
+          }
+          player.vx = 0;
         }
         if (!this.collidesWall(player.x, nextY, PLAYER_RADIUS)) {
           player.y = nextY;
+        } else {
+          // Clamp to nearest wall surface along Y axis
+          for (const wall of this.currentMap.walls) {
+            if (
+              player.x + PLAYER_RADIUS > wall.x &&
+              player.x - PLAYER_RADIUS < wall.x + wall.width &&
+              nextY + PLAYER_RADIUS > wall.y &&
+              nextY - PLAYER_RADIUS < wall.y + wall.height
+            ) {
+              if (player.vy > 0) {
+                player.y = wall.y - PLAYER_RADIUS;
+              } else {
+                player.y = wall.y + wall.height + PLAYER_RADIUS;
+              }
+            }
+          }
+          player.vy = 0;
         }
 
         // --- TWO-FLAG CTF LOGIC ---
