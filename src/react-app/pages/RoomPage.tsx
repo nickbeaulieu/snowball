@@ -13,6 +13,7 @@ import type { MapDefinition } from "../../maps";
 import { Lobby } from "../components/Lobby";
 import { GameCanvas } from "../game-canvas";
 import { GameFinished } from "../components/GameFinished";
+import { initAudio, playGameStartSound, playGameOverSound, setMasterVolume } from "../sounds";
 
 type LobbyState = {
   phase: RoomPhase;
@@ -38,6 +39,7 @@ export function RoomPage() {
     }
     return id;
   });
+  const [muted, setMuted] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [nickname, setNickname] = useState<string>(() => {
     return localStorage.getItem("playerNickname") || "";
@@ -99,6 +101,17 @@ export function RoomPage() {
           gameStateBufferRef.current = [];
           // Snapshot buffer for GameCanvas mount
           setInitialSnapshots([]);
+          initAudio();
+          playGameStartSound();
+        }
+
+        // Detect playing → finished transition
+        if (prevPhase === "playing" && newPhase === "finished") {
+          const myReady = msg.readyStates?.find(
+            (rs: PlayerReadyState) => rs.playerId === clientId,
+          );
+          const won = myReady?.selectedTeam === msg.winner;
+          playGameOverSound(won);
         }
 
         setLobbyState(msg);
@@ -253,6 +266,36 @@ export function RoomPage() {
           nickname={nickname}
           onNicknameChange={setNickname}
         />
+      )}
+
+      {(phase === "playing" || phase === "finished") && (
+        <button
+          onClick={() => {
+            const newMuted = !muted;
+            setMuted(newMuted);
+            setMasterVolume(newMuted ? 0 : 0.7);
+          }}
+          style={{
+            position: "fixed",
+            top: "1rem",
+            left: "1rem",
+            zIndex: 100,
+            background: "rgba(0, 0, 0, 0.4)",
+            color: "white",
+            border: "none",
+            borderRadius: "50%",
+            width: "36px",
+            height: "36px",
+            cursor: "pointer",
+            fontSize: "1.1rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title={muted ? "Unmute" : "Mute"}
+        >
+          {muted ? "\u{1F507}" : "\u{1F50A}"}
+        </button>
       )}
 
       {phase === "playing" && lobbyState && ws && (

@@ -13,8 +13,23 @@ import {
   AMMO_RECHARGE_TIME,
 } from "../constants";
 
-import type { Player, ServerSnapshot, Snowball, GameState, Particle } from "../types";
+import type { Player, ServerSnapshot, Snowball, GameState, Particle, Team } from "../types";
 import type { MapDefinition, Wall } from "../maps";
+
+import {
+  initAudio,
+  spatialVolume,
+  playThrowSound,
+  playHitSound,
+  playLocalHitSound,
+  playWallHitSound,
+  playDeathSound,
+  playRespawnSound,
+  playFlagPickupSound,
+  playFlagDropSound,
+  playFlagReturnSound,
+  playFlagCaptureSound,
+} from "./sounds";
 
 import {
   drawVoidBackground,
@@ -152,6 +167,7 @@ export function GameCanvas({
   // Track when the player last threw a snowball (for cooldown)
   const lastThrowTimeRef = useRef<number>(0);
 
+
   // Helper to throw a snowball in a given direction (or current movement if not specified)
   const throwSnowball = useCallback((dirX?: number, dirY?: number) => {
     const now = performance.now() / 1000;
@@ -180,11 +196,13 @@ export function GameCanvas({
         dir: { x: dx, y: dy },
       }),
     );
+    playThrowSound();
   }, [websocket]);
 
   // Handle snowball throw input (spacebar or mouse click)
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      initAudio();
       if (e.code === "Space") {
         const player = predictedPlayerRef.current;
         if (player && player.carryingFlag) {
@@ -195,6 +213,7 @@ export function GameCanvas({
     window.addEventListener("keydown", handleKey);
 
     const handleMouse = (e: MouseEvent) => {
+      initAudio();
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -292,6 +311,7 @@ export function GameCanvas({
 
         if (!wasHit && me.hit) {
           shakeRef.current = { startTime: performance.now(), intensity: 4 };
+          playLocalHitSound();
         }
         predictedPlayerRef.current.hitTime = me.hitTime;
         predictedPlayerRef.current.dead = me.dead;
@@ -336,8 +356,10 @@ export function GameCanvas({
         (i) => i.seq > me.lastProcessedInput,
       );
 
-      // --- Particle event detection (client-only, diff prev vs current snapshot) ---
+      // --- Particle & sound event detection (client-only, diff prev vs current snapshot) ---
       const prev = prevSnapshotRef.current;
+      const myX = predictedPlayerRef.current?.x ?? 0;
+      const myY = predictedPlayerRef.current?.y ?? 0;
       if (prev) {
         for (const curr of msg.state.players) {
           const prevP = prev.players.find((p) => p.id === curr.id);
@@ -348,6 +370,10 @@ export function GameCanvas({
             particlesRef.current.push(
               ...createImpactParticles(curr.x, curr.y, curr.vx ?? 0, curr.vy ?? 0),
             );
+            // Local player hit sound is handled above (playLocalHitSound)
+            if (curr.id !== playerIdRef.current) {
+              playHitSound(spatialVolume(curr.x, curr.y, myX, myY));
+            }
           }
 
           // Death: player just died
@@ -355,6 +381,7 @@ export function GameCanvas({
             particlesRef.current.push(
               ...createDeathParticles(curr.deathX, curr.deathY, curr.team),
             );
+            playDeathSound(spatialVolume(curr.deathX, curr.deathY, myX, myY));
           }
 
           // Respawn: player was dead, now alive
@@ -362,6 +389,7 @@ export function GameCanvas({
             particlesRef.current.push(
               ...createRespawnParticles(curr.x, curr.y, curr.team),
             );
+            playRespawnSound(spatialVolume(curr.x, curr.y, myX, myY));
           }
         }
 
@@ -383,6 +411,7 @@ export function GameCanvas({
             particlesRef.current.push(
               ...createImpactParticles(projX, projY, prevS.vx, prevS.vy),
             );
+            playWallHitSound(spatialVolume(projX, projY, myX, myY));
           }
         }
 
@@ -392,12 +421,37 @@ export function GameCanvas({
           particlesRef.current.push(
             ...createCelebrationParticles(base.x, base.y, "red"),
           );
+          playFlagCaptureSound(spatialVolume(base.x, base.y, myX, myY));
         }
         if (msg.state.scores.blue > prev.scores.blue) {
           const base = mapData.teams.blue.flagBase;
           particlesRef.current.push(
             ...createCelebrationParticles(base.x, base.y, "blue"),
           );
+          playFlagCaptureSound(spatialVolume(base.x, base.y, myX, myY));
+        }
+
+        // Flag events: pickup, drop, return
+        for (const team of ["red", "blue"] as Team[]) {
+          const prevFlag = prev.flags[team];
+          const currFlag = msg.state.flags[team];
+
+          // Flag picked up (was not carried, now carried)
+          if (!prevFlag.carriedBy && currFlag.carriedBy) {
+            playFlagPickupSound(spatialVolume(currFlag.x, currFlag.y, myX, myY));
+          }
+
+          // Flag dropped (was carried, now dropped on ground)
+          if (prevFlag.carriedBy && !currFlag.carriedBy && currFlag.dropped) {
+            playFlagDropSound(spatialVolume(currFlag.x, currFlag.y, myX, myY));
+          }
+
+          // Flag returned to base (was dropped/carried, now at base, no score change)
+          const scoreUnchanged = msg.state.scores[team] === prev.scores[team];
+          if (scoreUnchanged && !prevFlag.atBase && currFlag.atBase) {
+            const base = mapData.teams[team].flagBase;
+            playFlagReturnSound(spatialVolume(base.x, base.y, myX, myY));
+          }
         }
       }
       prevSnapshotRef.current = msg.state;
