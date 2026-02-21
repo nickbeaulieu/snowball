@@ -936,6 +936,9 @@ export class Room extends DurableObject<Env> {
           for (const player of this.players.values()) {
             if (player.id === s.owner) continue;
             if (player.dead) continue; // Snowballs pass through corpses
+            // No friendly fire — snowballs pass through teammates
+            const ownerPlayer = this.players.get(s.owner);
+            if (ownerPlayer && ownerPlayer.team === player.team) continue;
             const dx = player.x - s.x;
             const dy = player.y - s.y;
             if (dx * dx + dy * dy < (PLAYER_RADIUS + SNOWBALL_RADIUS) ** 2) {
