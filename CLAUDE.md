@@ -47,3 +47,12 @@ The game loop disconnects players whose `lastSeen` exceeds 5 seconds (stale-play
 ### Client-Side Prediction (game-canvas.tsx)
 
 Maintains `predictedPlayerRef` separate from server state. Reapplies unacknowledged inputs on each server snapshot. When server and predicted positions diverge beyond 50px, applies smooth blended correction on both position and velocity.
+
+### Homepage Background (homepage-background.tsx)
+
+Animated background on the home screen showing a live bot CTF simulation (Minecraft title screen style). 10 bots (5v5) with role-based AI (attacker/defender/roamer) play on the classic map behind a frosted-glass UI card. Key details:
+- Reuses all render functions from `render.ts` with mock `Player` data via `toPlayer()` adapter
+- Bot physics match the real game: same acceleration, friction, wall collision, snowball stun (0.5s freeze, no death)
+- Wall avoidance via proximity repulsion forces + stuck detection with perpendicular rerouting
+- Camera drifts slowly across the map (lerp toward random targets every 8-15s)
+- `collidesWall` is copied locally (not exported from `game-canvas.tsx`)

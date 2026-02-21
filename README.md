@@ -1,5 +1,5 @@
-- stuck in "connecting to room" screen
 - sound
+- better host persistence
 
 - Preview of map, or minimap
 

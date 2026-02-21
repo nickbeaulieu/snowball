@@ -4,6 +4,7 @@ import type {
   RoomPhase,
   RoomConfig,
   PlayerReadyState,
+  PlayerStatsEntry,
   Team,
   GameState,
   ServerSnapshot,
@@ -21,6 +22,7 @@ type LobbyState = {
   timeRemaining?: number;
   winner?: Team;
   mapData: MapDefinition;
+  playerStats?: PlayerStatsEntry[];
 };
 
 export function RoomPage() {
@@ -268,6 +270,8 @@ export function RoomPage() {
           scores={gameState?.scores}
           isHost={lobbyState.hostId === clientId}
           websocket={ws}
+          playerStats={lobbyState.playerStats}
+          clientId={clientId}
         />
       )}
     </div>

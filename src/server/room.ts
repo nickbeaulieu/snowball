@@ -8,6 +8,8 @@ import {
   type RoomConfig,
   type PlayerReadyState,
   type ClientMessage,
+  type PlayerStats,
+  type PlayerStatsEntry,
 } from "../types";
 import { getMap, DEFAULT_MAP_ID, type MapDefinition, type SpawnZone } from "../maps";
 import {
@@ -66,6 +68,11 @@ export class Room extends DurableObject<Env> {
   originalHostId?: string; // Track first-ever host for priority reconnection
   gameStartTime?: number;
   winner?: Team;
+
+  // Per-player stats tracking (server-only)
+  private playerStats: Map<string, PlayerStats> = new Map();
+  private lastPlayerPositions: Map<string, { x: number; y: number }> = new Map();
+  private playerLifeStartTime: Map<string, number> = new Map();
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -139,6 +146,29 @@ export class Room extends DurableObject<Env> {
     }
   }
 
+  private initPlayerStats(): PlayerStats {
+    return {
+      hits: 0,
+      timesHit: 0,
+      throws: 0,
+      flagCaptures: 0,
+      flagPickups: 0,
+      flagReturns: 0,
+      distanceTraveled: 0,
+      flagCarryTime: 0,
+      longestLife: 0,
+    };
+  }
+
+  private getOrInitStats(playerId: string): PlayerStats {
+    let stats = this.playerStats.get(playerId);
+    if (!stats) {
+      stats = this.initPlayerStats();
+      this.playerStats.set(playerId, stats);
+    }
+    return stats;
+  }
+
   // Helper method to get random spawn position within a team's spawn zone
   private getRandomSpawnPosition(spawnZone: SpawnZone): { x: number; y: number } {
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -203,6 +233,7 @@ export class Room extends DurableObject<Env> {
       timeRemaining,
       winner: this.winner,
       mapData: this.currentMap,
+      playerStats: this.buildPlayerStatsEntries(),
     };
 
     try {
@@ -430,6 +461,7 @@ export class Room extends DurableObject<Env> {
       if (!player.lastThrowTime || Date.now() - player.lastThrowTime > 200) {
         player.lastThrowTime = Date.now();
         player.ammo--;
+        this.getOrInitStats(playerId).throws++;
         const len = Math.hypot(msg.dir.x, msg.dir.y);
         if (len === 0) return;
         const dx = msg.dir.x / len;
@@ -665,6 +697,23 @@ export class Room extends DurableObject<Env> {
           player.vy = 0;
         }
 
+        // Track distance traveled
+        const lastPos = this.lastPlayerPositions.get(player.id);
+        if (lastPos) {
+          const ddx = player.x - lastPos.x;
+          const ddy = player.y - lastPos.y;
+          const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+          if (dist > 0.1) {
+            this.getOrInitStats(player.id).distanceTraveled += dist;
+          }
+        }
+        this.lastPlayerPositions.set(player.id, { x: player.x, y: player.y });
+
+        // Track flag carry time
+        if (player.carryingFlag) {
+          this.getOrInitStats(player.id).flagCarryTime += DT * 1000;
+        }
+
         // --- TWO-FLAG CTF LOGIC ---
         const FLAG_PICKUP_RADIUS = PLAYER_RADIUS + 18;
         const FLAG_PICKUP_COOLDOWN = 500; // ms after dropping before can pick up again
@@ -687,6 +736,7 @@ export class Room extends DurableObject<Env> {
             enemyFlag.atBase = false;
             enemyFlag.dropped = false;
             player.carryingFlag = enemyTeam;
+            this.getOrInitStats(player.id).flagPickups++;
           }
         }
 
@@ -703,6 +753,7 @@ export class Room extends DurableObject<Env> {
             ownFlag.y = ownFlagBase.y;
             ownFlag.atBase = true;
             ownFlag.dropped = false;
+            this.getOrInitStats(player.id).flagReturns++;
           }
         }
 
@@ -726,6 +777,7 @@ export class Room extends DurableObject<Env> {
           // Score if: near own flag base AND own flag is at home AND carrying enemy flag
           if (distToBase < SCORING_RADIUS && ownFlag.atBase && carriedFlag.carriedBy === player.id) {
             this.scores[player.team]++;
+            this.getOrInitStats(player.id).flagCaptures++;
 
             // Check win condition
             if (this.config.scoreLimit > 0 && this.scores[player.team] >= this.config.scoreLimit) {
@@ -884,6 +936,15 @@ export class Room extends DurableObject<Env> {
             if (dx * dx + dy * dy < (PLAYER_RADIUS + SNOWBALL_RADIUS) ** 2) {
               player.hit = true;
               player.hitTime = now;
+              // Track hit stats
+              const targetStats = this.getOrInitStats(player.id);
+              targetStats.timesHit++;
+              const lifeStart = this.playerLifeStartTime.get(player.id) || now;
+              const lifeDuration = now - lifeStart;
+              if (lifeDuration > targetStats.longestLife) {
+                targetStats.longestLife = lifeDuration;
+              }
+              this.getOrInitStats(s.owner).hits++;
               return false;
             }
           }
@@ -896,6 +957,7 @@ export class Room extends DurableObject<Env> {
       for (const player of this.players.values()) {
         if (player.hit && now - player.hitTime > 500) {
           player.hit = false;
+          this.playerLifeStartTime.set(player.id, now);
         }
       }
 
@@ -912,6 +974,7 @@ export class Room extends DurableObject<Env> {
           player.vy = 0;
           player.ammo = MAX_AMMO;
           player.lastAmmoRechargeTime = now;
+          this.playerLifeStartTime.set(player.id, now);
         }
       }
 
@@ -957,6 +1020,23 @@ export class Room extends DurableObject<Env> {
     }, TICK);
   }
 
+  private buildPlayerStatsEntries(): PlayerStatsEntry[] | undefined {
+    if (this.phase !== "finished") return undefined;
+    const entries: PlayerStatsEntry[] = [];
+    for (const [playerId, stats] of this.playerStats) {
+      const player = this.players.get(playerId) ?? this.disconnectedPlayers.get(playerId)?.player;
+      if (player) {
+        entries.push({
+          ...stats,
+          playerId,
+          nickname: player.nickname,
+          team: player.team,
+        });
+      }
+    }
+    return entries;
+  }
+
   broadcastLobbyState() {
     const timeRemaining =
       this.phase === "playing" && this.gameStartTime && this.config.timeLimit > 0
@@ -972,6 +1052,7 @@ export class Room extends DurableObject<Env> {
       timeRemaining,
       winner: this.winner,
       mapData: this.currentMap,
+      playerStats: this.buildPlayerStatsEntries(),
     };
 
     for (const ws of this.sockets.keys()) {
@@ -1030,10 +1111,16 @@ export class Room extends DurableObject<Env> {
       }
     }
 
-    // Reset lastSeen for all players to prevent stale-player disconnection
+    // Initialize stats tracking
     const now = Date.now();
+    this.playerStats.clear();
+    this.lastPlayerPositions.clear();
+    this.playerLifeStartTime.clear();
     for (const player of this.players.values()) {
       player.lastSeen = now;
+      this.playerStats.set(player.id, this.initPlayerStats());
+      this.lastPlayerPositions.set(player.id, { x: player.x, y: player.y });
+      this.playerLifeStartTime.set(player.id, now);
     }
 
     // Broadcast lobby state to notify clients of phase change
@@ -1054,6 +1141,19 @@ export class Room extends DurableObject<Env> {
       // If tied, winner remains undefined
     } else {
       this.winner = winningTeam;
+    }
+
+    // Finalize longestLife for players still alive
+    const now = Date.now();
+    for (const [playerId] of this.players) {
+      const stats = this.playerStats.get(playerId);
+      const lifeStart = this.playerLifeStartTime.get(playerId);
+      if (stats && lifeStart) {
+        const lifeDuration = now - lifeStart;
+        if (lifeDuration > stats.longestLife) {
+          stats.longestLife = lifeDuration;
+        }
+      }
     }
 
     // Broadcast final state

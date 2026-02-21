@@ -69,6 +69,25 @@ export type Particle = {
   createdAt: number; // timestamp
 };
 
+// Player stats tracked during a game
+export type PlayerStats = {
+  hits: number;
+  timesHit: number;
+  throws: number;
+  flagCaptures: number;
+  flagPickups: number;
+  flagReturns: number;
+  distanceTraveled: number;
+  flagCarryTime: number;
+  longestLife: number;
+};
+
+export type PlayerStatsEntry = PlayerStats & {
+  playerId: string;
+  nickname?: string;
+  team: Team;
+};
+
 // Room phase management
 export type RoomPhase = "lobby" | "playing" | "finished";
 
@@ -112,4 +131,5 @@ export type ServerMessage =
       timeRemaining?: number; // seconds remaining in game (if time limit set)
       winner?: Team; // set when phase is "finished"
       mapData: MapDefinition; // Current map definition
+      playerStats?: PlayerStatsEntry[]; // set when phase is "finished"
     };
