@@ -1,3 +1,4 @@
+import { useState } from "react"; 
 import type { Team } from "../../types";
 import type { MapDefinition } from "../../maps";
 import { getAllMaps } from "../../maps";
@@ -25,6 +26,7 @@ type LobbyProps = {
 };
 
 export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameChange }: LobbyProps) {
+  const [showOptions, setShowOptions] = useState(false);
   const isHost = lobbyState.hostId === clientId;
   const myReadyState = lobbyState.readyStates.find(
     (rs) => rs.playerId === clientId
@@ -472,8 +474,83 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
               {myReadyState?.isReady ? "Not Ready" : "Ready"}
             </button>
           )}
+          <button
+            onClick={() => setShowOptions(true)}
+            style={{
+              width: "100%",
+              marginTop: "0.75rem",
+              padding: "0.65rem 1rem",
+              fontFamily: "'Segoe UI', system-ui, sans-serif",
+              fontSize: "0.95rem",
+              fontWeight: "600",
+              color: "#475569",
+              background: "white",
+              border: "2px solid #94a3b8",
+              borderRadius: "0.5rem",
+              cursor: "pointer",
+              transition: "border-color 0.2s, color 0.2s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#64748b";
+              e.currentTarget.style.color = "#0f172a";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#94a3b8";
+              e.currentTarget.style.color = "#475569";
+            }}
+          >
+            Options
+          </button>
         </div>
       </div>
+
+      {showOptions && (
+        <div
+          onClick={() => setShowOptions(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 50,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "white",
+              borderRadius: "1rem",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+              padding: "1.5rem",
+              width: "480px",
+              maxWidth: "90vw",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+              <h2 style={{ fontSize: "1rem", fontWeight: "600", color: "#0c4a6e", margin: 0 }}>Options</h2>
+              <button
+                onClick={() => setShowOptions(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: "1.25rem",
+                  cursor: "pointer",
+                  color: "#94a3b8",
+                  lineHeight: 1,
+                  padding: "0.25rem",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <p style={{ color: "#94a3b8", fontSize: "0.875rem", textAlign: "center", margin: 0 }}>
+              No options available
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
