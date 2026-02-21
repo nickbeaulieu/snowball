@@ -608,6 +608,22 @@ export class Room extends DurableObject<Env> {
           }
         }
 
+        // 1.5 Return own flag if it's dropped and player walks over it
+        const ownFlag = this.flags[player.team];
+        if (ownFlag.dropped && !ownFlag.carriedBy) {
+          const dx = player.x - ownFlag.x;
+          const dy = player.y - ownFlag.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < FLAG_PICKUP_RADIUS) {
+            const ownFlagBase = this.currentMap.teams[player.team].flagBase;
+            ownFlag.x = ownFlagBase.x;
+            ownFlag.y = ownFlagBase.y;
+            ownFlag.atBase = true;
+            ownFlag.dropped = false;
+          }
+        }
+
         // 2. Check scoring: must be near own flag base while carrying enemy flag
         if (player.carryingFlag) {
           const ownFlag = this.flags[player.team];
