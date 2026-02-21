@@ -365,6 +365,27 @@ export function GameCanvas({
           }
         }
 
+        // Snowball-wall hits: find snowballs that disappeared near walls
+        for (const prevS of prev.snowballs) {
+          // Project where this snowball should be now
+          const projX = prevS.x + prevS.vx * DT;
+          const projY = prevS.y + prevS.vy * DT;
+
+          // Check if a matching snowball still exists in current snapshot
+          const matched = msg.state.snowballs.some(
+            (s) =>
+              s.owner === prevS.owner &&
+              Math.abs(s.x - projX) < 30 &&
+              Math.abs(s.y - projY) < 30,
+          );
+
+          if (!matched && collidesWall(projX, projY, SNOWBALL_RADIUS, mapData.walls)) {
+            particlesRef.current.push(
+              ...createImpactParticles(projX, projY, prevS.vx, prevS.vy),
+            );
+          }
+        }
+
         // Flag capture: score increased
         if (msg.state.scores.red > prev.scores.red) {
           const base = mapData.teams.red.flagBase;
