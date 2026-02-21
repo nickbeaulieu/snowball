@@ -996,6 +996,12 @@ export class Room extends DurableObject<Env> {
       }
     }
 
+    // Reset lastSeen for all players to prevent stale-player disconnection
+    const now = Date.now();
+    for (const player of this.players.values()) {
+      player.lastSeen = now;
+    }
+
     // Broadcast lobby state to notify clients of phase change
     this.broadcastLobbyState();
   }
