@@ -1,5 +1,4 @@
 - stuck in "connecting to room" screen
-- on the lobby screen, the text for inputs and selects is not visible since it's the same color as the background
 - sound
 
 - Preview of map, or minimap

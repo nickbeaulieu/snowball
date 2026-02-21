@@ -145,11 +145,13 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
             maxLength={20}
             style={{
               width: "100%",
+              boxSizing: "border-box",
               padding: "0.75rem",
               fontSize: "1rem",
               border: "2px solid #e2e8f0",
               borderRadius: "0.375rem",
               background: "white",
+              color: "#333",
               outline: "none",
             }}
           />
@@ -207,6 +209,7 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
                   border: "2px solid #e2e8f0",
                   borderRadius: "0.375rem",
                   background: "white",
+                  color: "#333",
                   cursor: "pointer",
                 }}
               >
@@ -245,6 +248,7 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
                   border: "2px solid #e2e8f0",
                   borderRadius: "0.375rem",
                   background: "white",
+                  color: "#333",
                   cursor: "pointer",
                 }}
               >
@@ -281,6 +285,7 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
                   border: "2px solid #e2e8f0",
                   borderRadius: "0.375rem",
                   background: "white",
+                  color: "#333",
                   cursor: "pointer",
                 }}
               >

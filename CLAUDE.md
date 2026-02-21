@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run lint` — ESLint
 - `npm run deploy` — Deploy to Cloudflare Workers
 - No test framework is configured
+- **Always use `npm run check` for validation — never run `tsc` directly**
 
 ## Architecture
 
