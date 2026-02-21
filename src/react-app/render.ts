@@ -31,7 +31,7 @@ export function drawGridBackground(
   }
   ctx.strokeStyle = "#ececec"; // subtle grid lines
   ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.5; // Reduced from 0.7 for more subtle grid
+  ctx.globalAlpha = 0.7; // Restored visibility
   ctx.stroke();
   ctx.globalAlpha = 1;
 }
@@ -57,14 +57,162 @@ export function drawWorldBorder(
   ctx.strokeRect(0, 0, worldWidth, worldHeight);
 }
 
-export function drawWalls(
-  ctx: CanvasRenderingContext2D,
-  walls: Array<{ x: number; y: number; width: number; height: number }>
-): void {
-  const threshold = 2; // pixels - walls within this distance are considered connected
+// Helper: Check if two walls are connected (adjacent or overlapping)
+function areWallsConnected(
+  w1: { x: number; y: number; width: number; height: number },
+  w2: { x: number; y: number; width: number; height: number },
+  threshold: number = 3
+): boolean {
+  const w1Right = w1.x + w1.width;
+  const w1Bottom = w1.y + w1.height;
+  const w2Right = w2.x + w2.width;
+  const w2Bottom = w2.y + w2.height;
 
-  // Helper to check if two walls are adjacent on a specific edge
-  const isAdjacent = (w1: typeof walls[0], w2: typeof walls[0], edge: 'top' | 'bottom' | 'left' | 'right'): boolean => {
+  // Check for overlap or adjacency in both dimensions
+  const xOverlap = !(w1Right < w2.x - threshold || w2Right < w1.x - threshold);
+  const yOverlap = !(w1Bottom < w2.y - threshold || w2Bottom < w1.y - threshold);
+
+  return xOverlap && yOverlap;
+}
+
+// Helper: Group connected walls using Union-Find algorithm
+function groupConnectedWalls(
+  walls: Array<{ x: number; y: number; width: number; height: number }>
+): Array<Array<{ x: number; y: number; width: number; height: number }>> {
+  if (walls.length === 0) return [];
+
+  // Union-Find data structure
+  const parent: number[] = walls.map((_, i) => i);
+
+  function find(i: number): number {
+    if (parent[i] !== i) {
+      parent[i] = find(parent[i]); // Path compression
+    }
+    return parent[i];
+  }
+
+  function union(i: number, j: number): void {
+    const pi = find(i);
+    const pj = find(j);
+    if (pi !== pj) {
+      parent[pi] = pj;
+    }
+  }
+
+  // Check all pairs for connectivity
+  for (let i = 0; i < walls.length; i++) {
+    for (let j = i + 1; j < walls.length; j++) {
+      if (areWallsConnected(walls[i], walls[j])) {
+        union(i, j);
+      }
+    }
+  }
+
+  // Group walls by their root parent
+  const groups = new Map<number, typeof walls>();
+  walls.forEach((wall, i) => {
+    const root = find(i);
+    if (!groups.has(root)) {
+      groups.set(root, []);
+    }
+    groups.get(root)!.push(wall);
+  });
+
+  return Array.from(groups.values());
+}
+
+// Helper: Create a rounded rectangle path for a group of walls
+function createUnifiedPath(
+  ctx: CanvasRenderingContext2D,
+  group: Array<{ x: number; y: number; width: number; height: number }>,
+  cornerRadius: number = 16
+): void {
+  // Find bounding box
+  const minX = Math.min(...group.map(w => w.x));
+  const minY = Math.min(...group.map(w => w.y));
+  const maxX = Math.max(...group.map(w => w.x + w.width));
+  const maxY = Math.max(...group.map(w => w.y + w.height));
+
+  // Create unified blob by drawing rounded rect around bounding box
+  // (Simplified from full marching squares for better performance)
+  ctx.beginPath();
+
+  // Draw rounded rect around entire bounding box with smart corners
+  const r = cornerRadius;
+  const padding = 0;
+
+  ctx.moveTo(minX + r, minY - padding);
+  ctx.lineTo(maxX - r, minY - padding);
+  ctx.quadraticCurveTo(maxX + padding, minY - padding, maxX + padding, minY + r);
+  ctx.lineTo(maxX + padding, maxY - r);
+  ctx.quadraticCurveTo(maxX + padding, maxY + padding, maxX - r, maxY + padding);
+  ctx.lineTo(minX + r, maxY + padding);
+  ctx.quadraticCurveTo(minX - padding, maxY + padding, minX - padding, maxY - r);
+  ctx.lineTo(minX - padding, minY + r);
+  ctx.quadraticCurveTo(minX - padding, minY - padding, minX + r, minY - padding);
+  ctx.closePath();
+}
+
+// Helper: Add frost gloss effect to top of wall group
+function addFrostGloss(
+  ctx: CanvasRenderingContext2D,
+  minX: number,
+  minY: number,
+  maxX: number
+): void {
+  const centerX = (minX + maxX) / 2;
+  const width = maxX - minX;
+
+  // Create radial gradient for frost shine
+  const gloss = ctx.createRadialGradient(
+    centerX, minY, 0,
+    centerX, minY, width * 0.8
+  );
+  gloss.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
+  gloss.addColorStop(0.4, 'rgba(255, 255, 255, 0.06)');
+  gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+  ctx.fillStyle = gloss;
+  ctx.fillRect(minX - 10, minY - 10, maxX - minX + 20, 40);
+}
+
+// Helper: Check if a wall group is "simple" (can use unified blob rendering)
+function isSimpleGroup(
+  group: Array<{ x: number; y: number; width: number; height: number }>
+): boolean {
+  if (group.length === 1) return true;
+
+  // Check if all walls are collinear (all horizontal OR all vertical)
+  const allHorizontal = group.every(w => w.width > w.height);
+  const allVertical = group.every(w => w.height > w.width);
+
+  if (allHorizontal || allVertical) return true;
+
+  // Check if group is solid (fills >80% of bounding box)
+  const minX = Math.min(...group.map(w => w.x));
+  const minY = Math.min(...group.map(w => w.y));
+  const maxX = Math.max(...group.map(w => w.x + w.width));
+  const maxY = Math.max(...group.map(w => w.y + w.height));
+
+  const boundingArea = (maxX - minX) * (maxY - minY);
+  const totalWallArea = group.reduce((sum, w) => sum + w.width * w.height, 0);
+
+  return totalWallArea / boundingArea > 0.8;
+}
+
+// Helper: Render complex wall groups (crosses, frames) with individual wall rendering
+function renderComplexGroup(
+  ctx: CanvasRenderingContext2D,
+  group: Array<{ x: number; y: number; width: number; height: number }>
+): void {
+  const threshold = 3;
+
+  // Helper to check adjacency
+  const isAdjacent = (
+    w1: typeof group[0],
+    w2: typeof group[0],
+    edge: 'top' | 'bottom' | 'left' | 'right'
+  ): boolean => {
     if (edge === 'top') {
       return Math.abs(w2.y + w2.height - w1.y) < threshold &&
              w2.x < w1.x + w1.width && w2.x + w2.width > w1.x;
@@ -74,93 +222,182 @@ export function drawWalls(
     } else if (edge === 'left') {
       return Math.abs(w2.x + w2.width - w1.x) < threshold &&
              w2.y < w1.y + w1.height && w2.y + w2.height > w1.y;
-    } else { // right
+    } else {
       return Math.abs(w1.x + w1.width - w2.x) < threshold &&
              w2.y < w1.y + w1.height && w2.y + w2.height > w1.y;
     }
   };
 
-  // Draw walls as snow mounds with intelligent corner rounding
-  for (const wall of walls) {
-    ctx.save();
+  // Render each wall with smart corner detection
+  for (const wall of group) {
+    const hasTop = group.some(w => w !== wall && isAdjacent(wall, w, 'top'));
+    const hasBottom = group.some(w => w !== wall && isAdjacent(wall, w, 'bottom'));
+    const hasLeft = group.some(w => w !== wall && isAdjacent(wall, w, 'left'));
+    const hasRight = group.some(w => w !== wall && isAdjacent(wall, w, 'right'));
 
-    // Check adjacency for each edge
-    const hasTop = walls.some(w => w !== wall && isAdjacent(wall, w, 'top'));
-    const hasBottom = walls.some(w => w !== wall && isAdjacent(wall, w, 'bottom'));
-    const hasLeft = walls.some(w => w !== wall && isAdjacent(wall, w, 'left'));
-    const hasRight = walls.some(w => w !== wall && isAdjacent(wall, w, 'right'));
+    const r = 16;
 
-    const r = 16; // corner radius for snow mounds
-
-    // Build path with conditional corner rounding
     ctx.beginPath();
-
-    // Top edge
     ctx.moveTo(wall.x + (hasTop || hasLeft ? 0 : r), wall.y);
     ctx.lineTo(wall.x + wall.width - (hasTop || hasRight ? 0 : r), wall.y);
 
-    // Top-right corner
     if (!hasTop && !hasRight) {
       ctx.quadraticCurveTo(wall.x + wall.width, wall.y, wall.x + wall.width, wall.y + r);
     }
 
-    // Right edge
     ctx.lineTo(wall.x + wall.width, wall.y + wall.height - (hasBottom || hasRight ? 0 : r));
 
-    // Bottom-right corner
     if (!hasBottom && !hasRight) {
       ctx.quadraticCurveTo(wall.x + wall.width, wall.y + wall.height, wall.x + wall.width - r, wall.y + wall.height);
     }
 
-    // Bottom edge
     ctx.lineTo(wall.x + (hasBottom || hasLeft ? 0 : r), wall.y + wall.height);
 
-    // Bottom-left corner
     if (!hasBottom && !hasLeft) {
       ctx.quadraticCurveTo(wall.x, wall.y + wall.height, wall.x, wall.y + wall.height - r);
     }
 
-    // Left edge
     ctx.lineTo(wall.x, wall.y + (hasTop || hasLeft ? 0 : r));
 
-    // Top-left corner
     if (!hasTop && !hasLeft) {
       ctx.quadraticCurveTo(wall.x, wall.y, wall.x + r, wall.y);
     }
 
     ctx.closePath();
 
-    // Add vertical gradient for depth (top-down lighting)
+    // Gradient
     const gradient = ctx.createLinearGradient(0, wall.y, 0, wall.y + wall.height);
-    gradient.addColorStop(0, '#f0f9ff');   // Lighter at top (snow accumulation)
-    gradient.addColorStop(0.4, '#d4ebf7'); // Mid tone
-    gradient.addColorStop(1, '#b8dff0');   // Darker at bottom
+    gradient.addColorStop(0, '#f0f9ff');
+    gradient.addColorStop(0.4, '#d4ebf7');
+    gradient.addColorStop(1, '#b8dff0');
     ctx.fillStyle = gradient;
 
-    // Shadow for depth
-    ctx.shadowColor = 'rgba(100, 150, 200, 0.3)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 2;
+    // Shadow
+    ctx.shadowColor = 'rgba(100, 150, 200, 0.35)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 3;
     ctx.fill();
 
-    // Reset shadow
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-    // Stroke outline
+    // Outline
     ctx.strokeStyle = '#90caf9';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Add snow accumulation highlight on top edge (if exposed)
+    // Top highlight if exposed
     if (!hasTop) {
       ctx.beginPath();
-      ctx.moveTo(wall.x + (hasLeft ? 0 : r), wall.y + 1);
-      ctx.lineTo(wall.x + wall.width - (hasRight ? 0 : r), wall.y + 1);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 2;
+      ctx.moveTo(wall.x + (hasLeft ? 0 : r), wall.y + 2);
+      ctx.lineTo(wall.x + wall.width - (hasRight ? 0 : r), wall.y + 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 2.5;
       ctx.stroke();
+    }
+  }
+
+  // Add enhancements to entire group
+  const minX = Math.min(...group.map(w => w.x));
+  const minY = Math.min(...group.map(w => w.y));
+  const maxX = Math.max(...group.map(w => w.x + w.width));
+
+  addFrostGloss(ctx, minX, minY, maxX);
+  addCrystalStipple(ctx, group);
+}
+
+// Helper: Add stippled crystal dots texture
+function addCrystalStipple(
+  ctx: CanvasRenderingContext2D,
+  group: Array<{ x: number; y: number; width: number; height: number }>
+): void {
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)'; // Increased from 0.18 for better visibility
+
+  for (const wall of group) {
+    // Seeded random for consistent pattern
+    let seed = (wall.x * 73856093 + wall.y * 19349663) % 1000000;
+    const random = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+
+    // Calculate dot count based on area
+    const area = wall.width * wall.height;
+    const dotCount = Math.floor(area / 250); // Increased from 500 (2x density)
+
+    for (let i = 0; i < dotCount; i++) {
+      const x = wall.x + random() * wall.width;
+      const y = wall.y + random() * wall.height * 0.85; // Bias toward top
+      const size = 1 + random() * 1.5; // 1-2.5px
+
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+export function drawWalls(
+  ctx: CanvasRenderingContext2D,
+  walls: Array<{ x: number; y: number; width: number; height: number }>
+): void {
+  // Group connected walls into unified blobs
+  const groups = groupConnectedWalls(walls);
+
+  for (const group of groups) {
+    ctx.save();
+
+    // Check if this is a simple or complex group
+    if (isSimpleGroup(group)) {
+      // Simple group: use unified blob rendering
+      const minX = Math.min(...group.map(w => w.x));
+      const minY = Math.min(...group.map(w => w.y));
+      const maxX = Math.max(...group.map(w => w.x + w.width));
+      const maxY = Math.max(...group.map(w => w.y + w.height));
+
+      // Create unified path for the group
+      createUnifiedPath(ctx, group, 16);
+
+      // Vertical gradient for depth (top-down lighting)
+      const gradient = ctx.createLinearGradient(0, minY, 0, maxY);
+      gradient.addColorStop(0, '#f0f9ff');   // Lighter at top
+      gradient.addColorStop(0.4, '#d4ebf7'); // Mid tone
+      gradient.addColorStop(1, '#b8dff0');   // Darker at bottom
+      ctx.fillStyle = gradient;
+
+      // Shadow for depth
+      ctx.shadowColor = 'rgba(100, 150, 200, 0.35)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 3;
+      ctx.fill();
+
+      // Reset shadow
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+
+      // Stroke outline
+      ctx.strokeStyle = '#90caf9';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // Visual Enhancement 1: Frost gloss layer
+      addFrostGloss(ctx, minX, minY, maxX);
+
+      // Visual Enhancement 2: Stippled crystal dots
+      addCrystalStipple(ctx, group);
+
+      // Add top edge highlight
+      ctx.beginPath();
+      ctx.moveTo(minX + 16, minY + 2);
+      ctx.lineTo(maxX - 16, minY + 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    } else {
+      // Complex group (crosses, frames): render each wall individually
+      renderComplexGroup(ctx, group);
     }
 
     ctx.restore();

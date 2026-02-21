@@ -1,3 +1,10 @@
+- Arrow-key navigation
+- limited snowball ammo
+- you cannot throw snowballs when frozen
+- running over your own teams flag returns it to base
+- getting stuck in the walls should never happen
+- stuck in "connecting to room" screen
+
 - Preview of map, or minimap
 
 - Mercy rule
