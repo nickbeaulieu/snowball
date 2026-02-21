@@ -22,12 +22,12 @@ import {
   MAX_AMMO,
   AMMO_RECHARGE_TIME,
 } from "../constants";
-type Snowball = {
+type ServerSnowball = {
   x: number;
   y: number;
   vx: number;
   vy: number;
-  ownerId: string;
+  owner: string;
   createdAt: number;
 };
 
@@ -35,6 +35,7 @@ export class Room extends DurableObject<Env> {
   players: Map<string, Player> = new Map();
   disconnectedPlayers: Map<string, { player: Player; disconnectTime: number }> = new Map();
   sockets: Map<WebSocket, string> = new Map();
+  private lobbyMsgTimestamps: Map<string, number[]> = new Map(); // per-player rate limiting
   tickInterval?: number;
 
   // Map system
@@ -48,7 +49,7 @@ export class Room extends DurableObject<Env> {
     return this.currentMap.height;
   }
 
-  snowballs: Snowball[] = [];
+  snowballs: ServerSnowball[] = [];
 
   flags: Record<Team, FlagState>;
   scores: Record<Team, number> = { red: 0, blue: 0 };
@@ -90,8 +91,8 @@ export class Room extends DurableObject<Env> {
     };
   }
 
-  // Check if a circle at (x, y) with given radius overlaps any wall
-  private collidesWall(x: number, y: number, radius: number): boolean {
+  // Check if a circle at (x, y) with given radius overlaps any wall; returns the wall or null
+  private findCollidingWall(x: number, y: number, radius: number): { x: number; y: number; width: number; height: number } | null {
     for (const wall of this.currentMap.walls) {
       if (
         x + radius > wall.x &&
@@ -99,10 +100,14 @@ export class Room extends DurableObject<Env> {
         y + radius > wall.y &&
         y - radius < wall.y + wall.height
       ) {
-        return true;
+        return wall;
       }
     }
-    return false;
+    return null;
+  }
+
+  private collidesWall(x: number, y: number, radius: number): boolean {
+    return this.findCollidingWall(x, y, radius) !== null;
   }
 
   // Push a player out of any wall they overlap, along the axis of minimum penetration
@@ -363,9 +368,30 @@ export class Room extends DurableObject<Env> {
     const player = this.players.get(playerId);
     if (!player) return;
 
-    player.lastSeen = Date.now();
+    const now = Date.now();
+    player.lastSeen = now;
 
-    const msg = JSON.parse(e.data) as ClientMessage;
+    let msg: ClientMessage;
+    try {
+      msg = JSON.parse(e.data as string) as ClientMessage;
+    } catch {
+      return;
+    }
+
+    // Rate limit non-input messages (max 10 per second)
+    if (msg.type !== "input" && msg.type !== "throw") {
+      let timestamps = this.lobbyMsgTimestamps.get(playerId);
+      if (!timestamps) {
+        timestamps = [];
+        this.lobbyMsgTimestamps.set(playerId, timestamps);
+      }
+      // Remove timestamps older than 1 second
+      while (timestamps.length > 0 && timestamps[0] < now - 1000) {
+        timestamps.shift();
+      }
+      if (timestamps.length >= 10) return; // Drop message
+      timestamps.push(now);
+    }
 
     if (msg.type === "input") {
       // Only process input during playing phase
@@ -404,7 +430,7 @@ export class Room extends DurableObject<Env> {
           y: player.y,
           vx: dx * SNOWBALL_SPEED,
           vy: dy * SNOWBALL_SPEED,
-          ownerId: playerId,
+          owner: playerId,
           createdAt: Date.now(),
         });
       }
@@ -516,7 +542,15 @@ export class Room extends DurableObject<Env> {
       const dt = DT;
       const now = Date.now();
 
-      // Always broadcast lobby state to keep clients updated
+      // Clean up expired disconnected player states (runs in all phases)
+      const CLEANUP_AFTER = 60000; // Remove after 1 minute
+      for (const [id, data] of this.disconnectedPlayers) {
+        if (now - data.disconnectTime > CLEANUP_AFTER) {
+          this.disconnectedPlayers.delete(id);
+        }
+      }
+
+      // Broadcast lobby state to keep clients updated during non-playing phases
       if (this.phase === "lobby" || this.phase === "finished") {
         this.broadcastLobbyState();
       }
@@ -551,14 +585,6 @@ export class Room extends DurableObject<Env> {
               break;
             }
           }
-        }
-      }
-
-      // Clean up expired disconnected player states
-      const CLEANUP_AFTER = 60000; // Remove after 1 minute
-      for (const [id, data] of this.disconnectedPlayers) {
-        if (now - data.disconnectTime > CLEANUP_AFTER) {
-          this.disconnectedPlayers.delete(id);
         }
       }
 
@@ -607,43 +633,25 @@ export class Room extends DurableObject<Env> {
         nextX = Math.max(0, Math.min(this.worldWidth, nextX));
         nextY = Math.max(0, Math.min(this.worldHeight, nextY));
         // Wall collision (per-axis to allow wall sliding, clamp to wall surface)
-        if (!this.collidesWall(nextX, player.y, PLAYER_RADIUS)) {
+        const wallX = this.findCollidingWall(nextX, player.y, PLAYER_RADIUS);
+        if (!wallX) {
           player.x = nextX;
         } else {
-          // Clamp to nearest wall surface along X axis
-          for (const wall of this.currentMap.walls) {
-            if (
-              nextX + PLAYER_RADIUS > wall.x &&
-              nextX - PLAYER_RADIUS < wall.x + wall.width &&
-              player.y + PLAYER_RADIUS > wall.y &&
-              player.y - PLAYER_RADIUS < wall.y + wall.height
-            ) {
-              if (player.vx > 0) {
-                player.x = wall.x - PLAYER_RADIUS;
-              } else {
-                player.x = wall.x + wall.width + PLAYER_RADIUS;
-              }
-            }
+          if (player.vx > 0) {
+            player.x = wallX.x - PLAYER_RADIUS;
+          } else {
+            player.x = wallX.x + wallX.width + PLAYER_RADIUS;
           }
           player.vx = 0;
         }
-        if (!this.collidesWall(player.x, nextY, PLAYER_RADIUS)) {
+        const wallY = this.findCollidingWall(player.x, nextY, PLAYER_RADIUS);
+        if (!wallY) {
           player.y = nextY;
         } else {
-          // Clamp to nearest wall surface along Y axis
-          for (const wall of this.currentMap.walls) {
-            if (
-              player.x + PLAYER_RADIUS > wall.x &&
-              player.x - PLAYER_RADIUS < wall.x + wall.width &&
-              nextY + PLAYER_RADIUS > wall.y &&
-              nextY - PLAYER_RADIUS < wall.y + wall.height
-            ) {
-              if (player.vy > 0) {
-                player.y = wall.y - PLAYER_RADIUS;
-              } else {
-                player.y = wall.y + wall.height + PLAYER_RADIUS;
-              }
-            }
+          if (player.vy > 0) {
+            player.y = wallY.y - PLAYER_RADIUS;
+          } else {
+            player.y = wallY.y + wallY.height + PLAYER_RADIUS;
           }
           player.vy = 0;
         }
@@ -745,9 +753,8 @@ export class Room extends DurableObject<Env> {
                 this.flags[playerFlagTeam].carriedBy = undefined;
                 this.flags[playerFlagTeam].atBase = true;
                 this.flags[playerFlagTeam].dropped = false;
-                this.flags[playerFlagTeam].x =
-                  playerFlagTeam === "red" ? 80 : this.worldWidth - 80;
-                this.flags[playerFlagTeam].y = this.worldHeight / 2;
+                this.flags[playerFlagTeam].x = this.currentMap.teams[playerFlagTeam].flagBase.x;
+                this.flags[playerFlagTeam].y = this.currentMap.teams[playerFlagTeam].flagBase.y;
 
                 // Return other's flag to base
                 this.flags[otherFlagTeam].carriedBy = undefined;
@@ -827,54 +834,49 @@ export class Room extends DurableObject<Env> {
         }
       }
 
-      // Update snowballs
-      this.snowballs = this.snowballs.filter(
-        (s) => now - s.createdAt < SNOWBALL_LIFETIME * 1000,
-      );
-      for (const snowball of this.snowballs) {
-        snowball.x += snowball.vx * dt;
-        snowball.y += snowball.vy * dt;
-      }
-      // Remove snowballs out of bounds
-      this.snowballs = this.snowballs.filter(
-        (s) =>
-          s.x >= 0 &&
-          s.x <= this.worldWidth &&
-          s.y >= 0 &&
-          s.y <= this.worldHeight,
-      );
-      // Remove snowballs that hit walls
+      // Update snowballs: move, then single-pass filter for lifetime/bounds/walls/player hits
+      const walls = this.currentMap.walls;
+      const ww = this.worldWidth;
+      const wh = this.worldHeight;
       this.snowballs = this.snowballs.filter((s) => {
-        for (const wall of this.currentMap.walls) {
+        // Check lifetime
+        if (now - s.createdAt >= SNOWBALL_LIFETIME * 1000) return false;
+
+        // Move
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+
+        // Check bounds
+        if (s.x < 0 || s.x > ww || s.y < 0 || s.y > wh) return false;
+
+        // Check wall collision
+        for (const wall of walls) {
           if (
             s.x + SNOWBALL_RADIUS > wall.x &&
             s.x - SNOWBALL_RADIUS < wall.x + wall.width &&
             s.y + SNOWBALL_RADIUS > wall.y &&
             s.y - SNOWBALL_RADIUS < wall.y + wall.height
           ) {
-            return false; // Remove snowball if it hits a wall
+            return false;
           }
         }
-        return true; // Keep snowball if no collision
+
+        // Check player collision
+        if (now - s.createdAt >= 50) {
+          for (const player of this.players.values()) {
+            if (player.id === s.owner) continue;
+            const dx = player.x - s.x;
+            const dy = player.y - s.y;
+            if (dx * dx + dy * dy < (PLAYER_RADIUS + SNOWBALL_RADIUS) ** 2) {
+              player.hit = true;
+              player.hitTime = now;
+              return false;
+            }
+          }
+        }
+
+        return true;
       });
-      // Collision detection (simple): snowball hits any player except owner
-      for (const snowball of this.snowballs) {
-        for (const player of this.players.values()) {
-          if (player.id === snowball.ownerId) continue;
-          // Don't hit if snowball is created inside the player (grace period)
-          if (now - snowball.createdAt < 50) continue;
-          const dx = player.x - snowball.x;
-          const dy = player.y - snowball.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < PLAYER_RADIUS + SNOWBALL_RADIUS) {
-            // Remove snowball and handle hit
-            snowball.x = -9999; // mark for removal
-            player.hit = true;
-            player.hitTime = now;
-          }
-        }
-      }
-      this.snowballs = this.snowballs.filter((s) => s.x !== -9999);
 
       // Reset hit after 0.5s
       for (const player of this.players.values()) {
@@ -907,13 +909,7 @@ export class Room extends DurableObject<Env> {
         type: "state",
         state: {
           players: Array.from(this.players.values()),
-          snowballs: this.snowballs.map((s) => ({
-            x: s.x,
-            y: s.y,
-            vx: s.vx,
-            vy: s.vy,
-            owner: s.ownerId,
-          })),
+          snowballs: this.snowballs,
           flags: { ...this.flags },
           scores: { ...this.scores },
           timeRemaining,

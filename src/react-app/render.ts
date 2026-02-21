@@ -75,8 +75,8 @@ function areWallsConnected(
   return xOverlap && yOverlap;
 }
 
-// Helper: Group connected walls using Union-Find algorithm
-function groupConnectedWalls(
+// Group connected walls using Union-Find algorithm (export for caching)
+export function groupConnectedWalls(
   walls: Array<{ x: number; y: number; width: number; height: number }>
 ): Array<Array<{ x: number; y: number; width: number; height: number }>> {
   if (walls.length === 0) return [];
@@ -340,10 +340,11 @@ function addCrystalStipple(
 
 export function drawWalls(
   ctx: CanvasRenderingContext2D,
-  walls: Array<{ x: number; y: number; width: number; height: number }>
+  walls: Array<{ x: number; y: number; width: number; height: number }>,
+  cachedGroups?: Array<Array<{ x: number; y: number; width: number; height: number }>>
 ): void {
-  // Group connected walls into unified blobs
-  const groups = groupConnectedWalls(walls);
+  // Use cached groups if provided, otherwise compute (expensive O(n^2))
+  const groups = cachedGroups ?? groupConnectedWalls(walls);
 
   for (const group of groups) {
     ctx.save();
@@ -797,22 +798,19 @@ export function drawSnowballs(
     ctx.shadowOffsetX = 1;
     ctx.shadowOffsetY = 1;
 
-    // Draw snowball with radial gradient for 3D sphere effect
-    const gradient = ctx.createRadialGradient(
-      s.x - snowballRadius * 0.35,  // Highlight offset to top-left
-      s.y - snowballRadius * 0.35,
-      snowballRadius * 0.2,
-      s.x,
-      s.y,
-      snowballRadius
-    );
-    gradient.addColorStop(0, '#ffffff');    // Bright white highlight
-    gradient.addColorStop(0.4, midColor);   // Transition to base color
-    gradient.addColorStop(1, darkColor);    // Darker edge shadow
-
+    // Draw snowball body
     ctx.beginPath();
     ctx.arc(s.x, s.y, snowballRadius, 0, Math.PI * 2);
-    ctx.fillStyle = gradient;
+    ctx.fillStyle = midColor;
+    ctx.fill();
+    ctx.strokeStyle = darkColor;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Add highlight for 3D effect (small white arc at top-left)
+    ctx.beginPath();
+    ctx.arc(s.x - snowballRadius * 0.25, s.y - snowballRadius * 0.25, snowballRadius * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.fill();
 
     // Reset shadow

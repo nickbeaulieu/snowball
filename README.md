@@ -6,9 +6,6 @@
 - Mercy rule
 - Speed settings
 
-- Wall collisions are inconsistent while running towards the wall
-    - Seems to be an issue with predictive interp
-
 - Make the home screen more fun
     - gameplay in the background
 

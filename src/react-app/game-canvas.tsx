@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useMemo } from "react";
 
 import {
   ACCELERATION,
@@ -6,7 +6,6 @@ import {
   MAX_SPEED,
   DT,
   CORRECTION_DURATION,
-  CORRECTION_THRESHOLD,
   SNOWBALL_RADIUS,
   PLAYER_RADIUS,
   GRID_SIZE,
@@ -28,6 +27,7 @@ import {
   drawSnowballs,
   drawScoreDisplay,
   drawAmmoBar,
+  groupConnectedWalls,
 } from "./render";
 
 let inputSeq = 0;
@@ -94,6 +94,9 @@ export function GameCanvas({
   }
 
   const playerIdRef = useRef<string>(clientId);
+
+  // Pre-compute wall groups once per map (avoids O(n^2) per frame)
+  const wallGroups = useMemo(() => groupConnectedWalls(mapData.walls), [mapData]);
 
   // Buffer of recent server snapshots for interpolation
   const snapshotBufferRef = useRef<ServerSnapshot[]>([]);
@@ -227,8 +230,14 @@ export function GameCanvas({
     }
 
     const handleMessage = (e: MessageEvent) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type !== "state") return;
+      let msg: ServerSnapshot;
+      try {
+        const parsed = JSON.parse(e.data);
+        if (parsed.type !== "state") return;
+        msg = parsed as ServerSnapshot;
+      } catch {
+        return;
+      }
 
       // Update time remaining from game state
       timeRemainingRef.current = msg.state.timeRemaining;
@@ -262,21 +271,7 @@ export function GameCanvas({
         const dvy = (me.vy ?? 0) - (predictedPlayerRef.current.vy ?? 0);
         const dist = Math.hypot(dx, dy);
         const vdist = Math.hypot(dvx, dvy);
-        if (dist > CORRECTION_THRESHOLD || vdist > CORRECTION_THRESHOLD) {
-          correctionStartRef.current = {
-            x: predictedPlayerRef.current.x,
-            y: predictedPlayerRef.current.y,
-            vx: predictedPlayerRef.current.vx ?? 0,
-            vy: predictedPlayerRef.current.vy ?? 0,
-          };
-          correctionTargetRef.current = {
-            x: me.x,
-            y: me.y,
-            vx: me.vx ?? 0,
-            vy: me.vy ?? 0,
-          };
-          correctionStartTimeRef.current = performance.now() / 1000;
-        } else if (dist > 0.01 || vdist > 0.01) {
+        if (dist > 0.01 || vdist > 0.01) {
           correctionStartRef.current = {
             x: predictedPlayerRef.current.x,
             y: predictedPlayerRef.current.y,
@@ -325,12 +320,18 @@ export function GameCanvas({
       keysRef.current[e.key] = false;
     };
 
+    const blur = () => {
+      keysRef.current = {};
+    };
+
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
 
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
     };
   }, []);
 
@@ -440,7 +441,9 @@ export function GameCanvas({
         right: !!keys["d"] || !!keys["ArrowRight"],
       };
 
-      websocket.send(JSON.stringify({ type: "input", ...input }));
+      if (websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({ type: "input", ...input }));
+      }
 
       // Store input for prediction and reconciliation
       pendingInputsRef.current.push(input);
@@ -598,8 +601,8 @@ export function GameCanvas({
       // Draw grid background in world space (after camera transform)
       drawGridBackground(ctx, mapData.width, mapData.height, GRID_SIZE);
 
-      // Draw walls
-      drawWalls(ctx, mapData.walls);
+      // Draw walls (using pre-computed groups to avoid O(n^2) per frame)
+      drawWalls(ctx, mapData.walls, wallGroups);
 
       // Draw team flags
       if (flags?.red) {
@@ -714,7 +717,7 @@ export function GameCanvas({
     draw();
 
     return () => cancelAnimationFrame(rafId);
-  }, [mapData]);
+  }, [mapData, wallGroups]);
 
   return (
     <canvas
