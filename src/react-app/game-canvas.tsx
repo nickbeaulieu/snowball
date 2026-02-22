@@ -11,9 +11,10 @@ import {
   GRID_SIZE,
   MAX_AMMO,
   AMMO_RECHARGE_TIME,
+  SNOWBALL_EMPTY_PENALTY,
 } from "../constants";
 
-import type { Player, ServerSnapshot, Snowball, GameState, Particle, Team } from "../types";
+import type { Player, ServerSnapshot, Snowball, GameState, Particle, Team, RoomConfig } from "../types";
 import type { MapDefinition, Wall } from "../maps";
 
 import {
@@ -89,6 +90,7 @@ type GameCanvasProps = {
   websocket: WebSocket;
   clientId: string;
   mapData: MapDefinition;
+  config: RoomConfig;
   initialSnapshots?: ServerSnapshot[];
 };
 
@@ -96,6 +98,7 @@ export function GameCanvas({
   websocket,
   clientId,
   mapData,
+  config,
   initialSnapshots = [],
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -197,7 +200,15 @@ export function GameCanvas({
       }),
     );
     playThrowSound();
-  }, [websocket]);
+
+    // Predict ammo decrement immediately for accurate indicator (server will confirm)
+    if (!config?.unlimitedAmmo) {
+      player.ammo--;
+      if (player.ammo === 0) {
+        player.lastAmmoRechargeTime = Date.now() + SNOWBALL_EMPTY_PENALTY * 1000;
+      }
+    }
+  }, [websocket, config]);
 
   // Handle snowball throw input (spacebar or mouse click)
   useEffect(() => {
@@ -889,7 +900,7 @@ export function GameCanvas({
         timeRemainingRef.current
       );
 
-      // Draw ammo recharge bar (only visible when not full)
+      // Draw ammo circle indicator
       const pred = predictedPlayerRef.current;
       if (pred) {
         drawAmmoBar(
@@ -900,6 +911,7 @@ export function GameCanvas({
           pred.lastAmmoRechargeTime,
           MAX_AMMO,
           AMMO_RECHARGE_TIME,
+          config?.unlimitedAmmo ?? false,
         );
       }
 

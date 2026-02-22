@@ -1,3 +1,4 @@
+import { useState } from "react"; 
 import type { Team } from "../../types";
 import type { MapDefinition } from "../../maps";
 import { getAllMaps } from "../../maps";
@@ -8,6 +9,7 @@ type LobbyProps = {
       scoreLimit: number;
       timeLimit: number;
       mapId?: string;
+      unlimitedAmmo?: boolean;
     };
     readyStates: Array<{
       playerId: string;
@@ -25,6 +27,7 @@ type LobbyProps = {
 };
 
 export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameChange }: LobbyProps) {
+  const [showOptions, setShowOptions] = useState(false);
   const isHost = lobbyState.hostId === clientId;
   const myReadyState = lobbyState.readyStates.find(
     (rs) => rs.playerId === clientId
@@ -472,8 +475,127 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
               {myReadyState?.isReady ? "Not Ready" : "Ready"}
             </button>
           )}
+          <button
+            onClick={() => setShowOptions(true)}
+            style={{
+              width: "100%",
+              marginTop: "0.75rem",
+              padding: "0.65rem 1rem",
+              fontFamily: "'Segoe UI', system-ui, sans-serif",
+              fontSize: "0.95rem",
+              fontWeight: "600",
+              color: "#475569",
+              background: "white",
+              border: "2px solid #94a3b8",
+              borderRadius: "0.5rem",
+              cursor: "pointer",
+              transition: "border-color 0.2s, color 0.2s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#64748b";
+              e.currentTarget.style.color = "#0f172a";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#94a3b8";
+              e.currentTarget.style.color = "#475569";
+            }}
+          >
+            Options
+          </button>
         </div>
       </div>
+
+      {showOptions && (
+        <div
+          onClick={() => setShowOptions(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 50,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "white",
+              borderRadius: "1rem",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+              padding: "1.5rem",
+              width: "480px",
+              maxWidth: "90vw",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+              <h2 style={{ fontSize: "1rem", fontWeight: "600", color: "#0c4a6e", margin: 0 }}>Options</h2>
+              <button
+                onClick={() => setShowOptions(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: "1.25rem",
+                  cursor: "pointer",
+                  color: "#94a3b8",
+                  lineHeight: 1,
+                  padding: "0.25rem",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            {/* Unlimited Ammo */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: "0.875rem", fontWeight: "600", color: "#334155" }}>Unlimited Ammo</div>
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.125rem" }}>
+                  Removes the 4-snowball limit and ammo indicator
+                </div>
+              </div>
+              {isHost ? (
+                <button
+                  onClick={() => handleUpdateConfig({ unlimitedAmmo: !lobbyState.config.unlimitedAmmo })}
+                  style={{
+                    flexShrink: 0,
+                    marginLeft: "1rem",
+                    padding: "0.375rem 0.875rem",
+                    fontSize: "0.8rem",
+                    fontWeight: "600",
+                    color: lobbyState.config.unlimitedAmmo ? "white" : "#475569",
+                    background: lobbyState.config.unlimitedAmmo
+                      ? "linear-gradient(to bottom, #3b82f6, #2563eb)"
+                      : "white",
+                    border: lobbyState.config.unlimitedAmmo ? "2px solid #2563eb" : "2px solid #94a3b8",
+                    borderRadius: "0.375rem",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {lobbyState.config.unlimitedAmmo ? "On" : "Off"}
+                </button>
+              ) : (
+                <span
+                  style={{
+                    flexShrink: 0,
+                    marginLeft: "1rem",
+                    padding: "0.375rem 0.875rem",
+                    fontSize: "0.8rem",
+                    fontWeight: "600",
+                    color: lobbyState.config.unlimitedAmmo ? "#2563eb" : "#94a3b8",
+                    background: lobbyState.config.unlimitedAmmo ? "#eff6ff" : "#f8fafc",
+                    border: `2px solid ${lobbyState.config.unlimitedAmmo ? "#bfdbfe" : "#e2e8f0"}`,
+                    borderRadius: "0.375rem",
+                  }}
+                >
+                  {lobbyState.config.unlimitedAmmo ? "On" : "Off"}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

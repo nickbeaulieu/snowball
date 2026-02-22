@@ -96,6 +96,7 @@ export type RoomConfig = {
   scoreLimit: number; // 0 = unlimited, otherwise first to X points wins
   timeLimit: number; // 0 = unlimited, otherwise game duration in seconds
   mapId?: string; // Optional map ID, defaults to 'classic'
+  unlimitedAmmo?: boolean; // if true, ammo is never depleted (default: false = 4-ammo limit)
 };
 
 // Player ready state for lobby
