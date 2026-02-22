@@ -1,4 +1,5 @@
 import type { Player, Snowball, FlagState, Team, Particle } from "../types";
+import { SNOWBALL_EMPTY_PENALTY } from "../constants";
 
 export function drawGridBackground(
   ctx: CanvasRenderingContext2D,
@@ -1209,55 +1210,86 @@ export function drawAmmoBar(
   lastAmmoRechargeTime: number,
   maxAmmo: number,
   rechargeTime: number,
+  unlimitedAmmo = false,
 ): void {
-  if (ammo >= maxAmmo) return;
+  if (unlimitedAmmo) return;
+
+  const now = Date.now();
+  const R = 8;
+  const spacing = 22;
+  const startX = 20 + R;
+  const startY = canvasHeight - 30;
+
+  const inPenalty = ammo === 0 && lastAmmoRechargeTime > now;
+  const penaltyDuration = SNOWBALL_EMPTY_PENALTY * 1000;
+  const penaltyTimeLeft = inPenalty ? lastAmmoRechargeTime - now : 0;
+  const penaltyProgress = inPenalty
+    ? (penaltyDuration - penaltyTimeLeft) / penaltyDuration
+    : 1;
+
+  const rechargeProgress =
+    !inPenalty && ammo < maxAmmo && lastAmmoRechargeTime > 0
+      ? Math.min((now - lastAmmoRechargeTime) / rechargeTime, 1)
+      : 0;
 
   ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+  ctx.shadowBlur = 6;
 
-  // Smooth fill: interpolate partial recharge progress
-  const now = Date.now();
-  const partial = lastAmmoRechargeTime
-    ? Math.min((now - lastAmmoRechargeTime) / rechargeTime, 1)
-    : 0;
-  const fillFraction = (ammo + partial) / maxAmmo;
+  for (let i = 0; i < maxAmmo; i++) {
+    const cx = startX + i * spacing;
+    const cy = startY;
 
-  const barWidth = 120;
-  const barHeight = 8;
-  const x = 20;
-  const y = canvasHeight - 50;
-  const radius = 4;
+    if (i < ammo) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.fill();
+    } else if (i === ammo && !inPenalty && ammo < maxAmmo) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+      ctx.fill();
 
-  // Drop shadow for contrast against any background
-  ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 2;
+      if (rechargeProgress > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.clip();
+        const fillHeight = R * 2 * rechargeProgress;
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.fillRect(cx - R, cy + R - fillHeight, R * 2, fillHeight);
+        ctx.restore();
+      }
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+      ctx.fill();
+    }
 
-  // Background
-  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-  ctx.beginPath();
-  ctx.roundRect(x, y, barWidth, barHeight, radius);
-  ctx.fill();
-
-  // Reset shadow before fill/outline
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  // Fill
-  const fillWidth = barWidth * fillFraction;
-  if (fillWidth > 0) {
-    ctx.fillStyle = "#fff";
+    // Outline
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
     ctx.beginPath();
-    ctx.roundRect(x, y, fillWidth, barHeight, radius);
-    ctx.fill();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
   }
 
-  // Outline
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(x, y, barWidth, barHeight, radius);
-  ctx.stroke();
+  if (inPenalty) {
+    const barWidth = (maxAmmo - 1) * spacing + R * 2;
+    const barX = startX - R;
+    const barY = startY + R + 6;
+    const barH = 3;
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.fillRect(barX, barY, barWidth, barH);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.fillRect(barX, barY, barWidth * penaltyProgress, barH);
+  }
 
   ctx.restore();
 }

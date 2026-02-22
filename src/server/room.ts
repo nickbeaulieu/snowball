@@ -24,6 +24,7 @@ import {
   MAX_AMMO,
   AMMO_RECHARGE_TIME,
   RESPAWN_TIME,
+  SNOWBALL_EMPTY_PENALTY,
 } from "../constants";
 type ServerSnowball = {
   x: number;
@@ -449,7 +450,7 @@ export class Room extends DurableObject<Env> {
       // Only allow throwing during playing phase
       if (this.phase !== "playing") return;
       if (player.hit || player.dead) return;
-      if (player.ammo <= 0) return;
+      if (!this.config.unlimitedAmmo && player.ammo <= 0) return;
       // Throw a snowball in the given direction
       if (
         !msg.dir ||
@@ -460,7 +461,12 @@ export class Room extends DurableObject<Env> {
       // Limit throw rate (simple cooldown)
       if (!player.lastThrowTime || Date.now() - player.lastThrowTime > 200) {
         player.lastThrowTime = Date.now();
-        player.ammo--;
+        if (!this.config.unlimitedAmmo) {
+          player.ammo--;
+          if (player.ammo === 0) {
+            player.lastAmmoRechargeTime = Date.now() + SNOWBALL_EMPTY_PENALTY * 1000;
+          }
+        }
         this.getOrInitStats(playerId).throws++;
         const len = Math.hypot(msg.dir.x, msg.dir.y);
         if (len === 0) return;
@@ -530,6 +536,9 @@ export class Room extends DurableObject<Env> {
       }
       if (msg.config.timeLimit !== undefined) {
         this.config.timeLimit = Math.max(0, msg.config.timeLimit);
+      }
+      if (msg.config.unlimitedAmmo !== undefined) {
+        this.config.unlimitedAmmo = !!msg.config.unlimitedAmmo;
       }
       this.broadcastLobbyState();
     } else if (msg.type === "select_map") {

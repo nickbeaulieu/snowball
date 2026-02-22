@@ -9,6 +9,7 @@ type LobbyProps = {
       scoreLimit: number;
       timeLimit: number;
       mapId?: string;
+      unlimitedAmmo?: boolean;
     };
     readyStates: Array<{
       playerId: string;
@@ -545,9 +546,53 @@ export function Lobby({ lobbyState, websocket, clientId, nickname, onNicknameCha
                 ✕
               </button>
             </div>
-            <p style={{ color: "#94a3b8", fontSize: "0.875rem", textAlign: "center", margin: 0 }}>
-              No options available
-            </p>
+            {/* Unlimited Ammo */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: "0.875rem", fontWeight: "600", color: "#334155" }}>Unlimited Ammo</div>
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.125rem" }}>
+                  Removes the 4-snowball limit and ammo indicator
+                </div>
+              </div>
+              {isHost ? (
+                <button
+                  onClick={() => handleUpdateConfig({ unlimitedAmmo: !lobbyState.config.unlimitedAmmo })}
+                  style={{
+                    flexShrink: 0,
+                    marginLeft: "1rem",
+                    padding: "0.375rem 0.875rem",
+                    fontSize: "0.8rem",
+                    fontWeight: "600",
+                    color: lobbyState.config.unlimitedAmmo ? "white" : "#475569",
+                    background: lobbyState.config.unlimitedAmmo
+                      ? "linear-gradient(to bottom, #3b82f6, #2563eb)"
+                      : "white",
+                    border: lobbyState.config.unlimitedAmmo ? "2px solid #2563eb" : "2px solid #94a3b8",
+                    borderRadius: "0.375rem",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {lobbyState.config.unlimitedAmmo ? "On" : "Off"}
+                </button>
+              ) : (
+                <span
+                  style={{
+                    flexShrink: 0,
+                    marginLeft: "1rem",
+                    padding: "0.375rem 0.875rem",
+                    fontSize: "0.8rem",
+                    fontWeight: "600",
+                    color: lobbyState.config.unlimitedAmmo ? "#2563eb" : "#94a3b8",
+                    background: lobbyState.config.unlimitedAmmo ? "#eff6ff" : "#f8fafc",
+                    border: `2px solid ${lobbyState.config.unlimitedAmmo ? "#bfdbfe" : "#e2e8f0"}`,
+                    borderRadius: "0.375rem",
+                  }}
+                >
+                  {lobbyState.config.unlimitedAmmo ? "On" : "Off"}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}

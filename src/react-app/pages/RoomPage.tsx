@@ -303,6 +303,7 @@ export function RoomPage() {
           websocket={ws}
           clientId={clientId}
           mapData={lobbyState.mapData}
+          config={lobbyState.config}
           initialSnapshots={initialSnapshots}
         />
       )}
